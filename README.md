@@ -97,7 +97,7 @@ void main() async {
 
   await AdhookChat.init(
     apiKey: 'your_api_key',
-    baseUrl: 'https://apim.admedika.co.id/adhook',
+    baseUrl: 'your_socker_service',
     widgetKey: 'your_widget_key',
     debugMode: true,
   );
