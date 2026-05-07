@@ -6,11 +6,11 @@ void main() async {
 
   // Initialize Adhook SDK with AdMedika settings
   await AdhookChat.init(
-    apiKey: '',
-    baseUrl: '',
-    widgetKey: '',
-    name: '',
-    email: '',
+    apiKey: 'wk_064df901032fe43b',
+    baseUrl: 'https://apim.admedika.co.id/adhook',
+    widgetKey: 'wk_064df901032fe43b',
+    name: 'Budi',
+    email: 'agung@gmail.com',
     debugMode: true,
   );
 

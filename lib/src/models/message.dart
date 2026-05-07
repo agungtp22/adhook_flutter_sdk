@@ -40,7 +40,7 @@ class AdhookMessage {
       id: json['id'] ?? 0,
       content: json['message_text'] ?? '',
       sender: json['sender_type'] == 'visitor' ? AdhookSender.visitor : AdhookSender.agent,
-      senderName: json['sender_name'],
+      senderName: json['sender_name'] ?? json['agent_name'],
       conversationId: json['conversation_id'],
       contactId: json['contact_id'],
       mediaUrl: json['media_url'],

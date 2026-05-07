@@ -193,12 +193,19 @@ class AdhookChat {
       );
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+        final dynamic decoded = jsonDecode(response.body);
+        List<dynamic> items = [];
+        if (decoded is List) {
+          items = decoded;
+        } else if (decoded is Map && decoded['messages'] is List) {
+          items = decoded['messages'];
+        }
+
         _messages.clear();
-        for (var item in data) { 
+        for (var item in items) { 
           final msg = AdhookMessage.fromJson(item);
           _messages.add(msg);
-          if (!kIsWeb) _localDb.saveMessage(msg); // Save each to local DB for mobile
+          if (!kIsWeb) _localDb.saveMessage(msg); 
         }
         _messageController.add(currentMessages);
       } else {
