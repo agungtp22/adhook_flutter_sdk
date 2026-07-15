@@ -20,11 +20,11 @@ class AdhookLocalDb {
     String path = join(await getDatabasesPath(), 'adhook_chat.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // Upgraded version for schema migration
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
-            id INTEGER PRIMARY KEY,
+            id TEXT PRIMARY KEY,
             conversation_id INTEGER,
             contact_id INTEGER,
             sender_type TEXT,
@@ -33,12 +33,35 @@ class AdhookLocalDb {
             media_url TEXT,
             mime_type TEXT,
             is_read INTEGER,
-            reply_to_id INTEGER,
+            reply_to_id TEXT,
             reply_to_content TEXT,
             reply_to_sender TEXT,
             created_at TEXT
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          // Drop and recreate table for TEXT ID support
+          await db.execute('DROP TABLE IF EXISTS messages');
+          await db.execute('''
+            CREATE TABLE messages(
+              id TEXT PRIMARY KEY,
+              conversation_id INTEGER,
+              contact_id INTEGER,
+              sender_type TEXT,
+              message_type TEXT,
+              message_text TEXT,
+              media_url TEXT,
+              mime_type TEXT,
+              is_read INTEGER,
+              reply_to_id TEXT,
+              reply_to_content TEXT,
+              reply_to_sender TEXT,
+              created_at TEXT
+            )
+          ''');
+        }
       },
     );
   }
@@ -68,20 +91,20 @@ class AdhookLocalDb {
 
   Future<List<AdhookMessage>> getMessages() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('messages', orderBy: 'id ASC');
+    final List<Map<String, dynamic>> maps = await db.query('messages', orderBy: 'created_at ASC');
 
     return List.generate(maps.length, (i) {
       return AdhookMessage(
-        id: maps[i]['id'],
+        id: maps[i]['id']?.toString() ?? '',
         conversationId: maps[i]['conversation_id'],
         contactId: maps[i]['contact_id'],
         sender: maps[i]['sender_type'] == 'visitor' ? AdhookSender.visitor : AdhookSender.agent,
-        type: maps[i]['message_type'],
-        content: maps[i]['message_text'],
+        type: maps[i]['message_type'] ?? 'TEXT',
+        content: maps[i]['message_text'] ?? '',
         mediaUrl: maps[i]['media_url'],
         mimeType: maps[i]['mime_type'],
         isRead: maps[i]['is_read'] == 1,
-        replyToId: maps[i]['reply_to_id'],
+        replyToId: maps[i]['reply_to_id']?.toString(),
         replyToContent: maps[i]['reply_to_content'],
         replyToSender: maps[i]['reply_to_sender'],
         createdAt: DateTime.parse(maps[i]['created_at']),

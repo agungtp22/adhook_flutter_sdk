@@ -48,7 +48,6 @@ class AdhookChat {
   final _statusController = StreamController<AdhookConnectionStatus>.broadcast();
   Stream<AdhookConnectionStatus> get connectionStatus => _statusController.stream;
 
-  // New: Error stream for informing developers/users
   final _errorController = StreamController<String>.broadcast();
   Stream<String> get errorStream => _errorController.stream;
 
@@ -106,7 +105,7 @@ class AdhookChat {
     _statusController.add(AdhookConnectionStatus.connecting);
 
     try {
-      // Load from local DB first for instant display (Mobile only)
+      // Load from local DB first for instant display
       if (!kIsWeb) {
         final localMsgs = await _localDb.getMessages();
         if (localMsgs.isNotEmpty) {
@@ -126,38 +125,61 @@ class AdhookChat {
       _log("Handshaking with URL: $wsUrl");
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       
+      // Perform handshake
+      _channel!.sink.add(jsonEncode({
+        "type": "widget",
+        "session_id": _sessionId,
+        "widget_key": _widgetKey
+      }));
+
       _channel!.stream.listen(
         (data) {
           final decoded = jsonDecode(data);
           _log("Received: $data");
 
-          if (decoded['type'] == 'connected') {
+          final eventType = decoded['event'] ?? decoded['type'];
+
+          if (eventType == 'connected') {
             _isConnected = true;
             _reconnectAttempts = 0;
             _statusController.add(AdhookConnectionStatus.connected);
           }
 
-          if (decoded['type'] == 'message') {
-            final msgData = decoded['data'];
-            final msg = AdhookMessage.fromJson(msgData);
-            if (!_messages.any((m) => m.id == msg.id && msg.id != 0)) {
-              _messages.add(msg);
-              _messageController.add(currentMessages);
-              if (!kIsWeb) _localDb.saveMessage(msg); // Persistence for mobile
+          if (eventType == 'new_message' || eventType == 'message') {
+            final msgData = decoded['message'] ?? decoded['data'];
+            if (msgData != null) {
+              final msg = AdhookMessage.fromJson(msgData);
+              if (!_messages.any((m) => m.id == msg.id && msg.id.isNotEmpty)) {
+                _messages.add(msg);
+                _messageController.add(currentMessages);
+                if (!kIsWeb) _localDb.saveMessage(msg);
+              }
             }
             _typingController.add(false);
           }
 
-          if (decoded['type'] == 'typing') {
-            _typingController.add(decoded['data']['is_typing'] ?? false);
+          if (eventType == 'agent_assigned' || eventType == 'session_assigned') {
+            final systemMsg = AdhookMessage(
+              id: 'sys-${DateTime.now().millisecondsSinceEpoch}',
+              content: 'Sesi dialihkan ke Agen: ${decoded['agent_name'] ?? 'Support Agent'}',
+              sender: AdhookSender.agent,
+              createdAt: DateTime.now(),
+              type: 'TEXT'
+            );
+            _messages.add(systemMsg);
+            _messageController.add(currentMessages);
           }
 
-          if (decoded['type'] == 'read') {
+          if (eventType == 'widget_typing' || eventType == 'typing') {
+            _typingController.add(decoded['is_typing'] ?? decoded['data']?['is_typing'] ?? false);
+          }
+
+          if (eventType == 'read') {
             for (var m in _messages) { if (m.sender == AdhookSender.visitor) m.isRead = true; }
             _messageController.add(currentMessages);
           }
           
-          if (decoded['type'] == 'error') {
+          if (eventType == 'error') {
             _errorController.add(decoded['error'] ?? "Unknown WebSocket error");
           }
         },
@@ -257,25 +279,46 @@ class AdhookChat {
     }
   }
 
-  void sendMessage(String text, {int? replyToId}) {
+  void sendMessage(String text, {String? replyToId}) {
     if (!_isConnected || _channel == null) return;
-    _channel!.sink.add(jsonEncode({"type": "message", "data": {"message_text": text, "reply_to_id": replyToId}}));
+    
+    // Format JSON matching our backend WebSocket handler send_message action
+    final messagePayload = {
+      "action": "send_message",
+      "content": text
+    };
+    if (replyToId != null) {
+      messagePayload["reply_to_id"] = replyToId;
+    }
+
+    _channel!.sink.add(jsonEncode(messagePayload));
     sendTypingStatus(false);
   }
 
   void sendTypingStatus(bool isTyping) {
     if (!_isConnected || _channel == null) return;
-    _channel!.sink.add(jsonEncode({"type": "typing", "data": {"is_typing": isTyping}}));
+    _channel!.sink.add(jsonEncode({
+      "action": "typing",
+      "is_typing": isTyping
+    }));
   }
 
   void sendLocation(double lat, double lng) {
     if (!_isConnected || _channel == null) return;
-    _channel!.sink.add(jsonEncode({"type": "location", "data": {"latitude": lat, "longitude": lng}}));
+    _channel!.sink.add(jsonEncode({
+      "action": "location",
+      "latitude": lat,
+      "longitude": lng
+    }));
   }
 
   void submitRating(int rating, String comment) {
     if (!_isConnected || _channel == null) return;
-    _channel!.sink.add(jsonEncode({"type": "rating", "data": {"rating": rating, "comment": comment}}));
+    _channel!.sink.add(jsonEncode({
+      "action": "rating",
+      "rating": rating,
+      "comment": comment
+    }));
   }
 
   Future<void> pickAndUploadFile() async {

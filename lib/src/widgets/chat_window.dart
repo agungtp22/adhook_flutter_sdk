@@ -51,7 +51,7 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> {
   AdhookMessage? _replyingTo;
   
   // Link Preview Cache to prevent flickering
-  final Map<int, PreviewData> _previewDataCache = {};
+  final Map<String, PreviewData> _previewDataCache = {};
 
   @override
   void initState() {
@@ -336,11 +336,53 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> {
 
   Widget _buildMessageBody(AdhookMessage msg, bool isMe, AdhookChatStyle style) {
     if (msg.type == 'system') return Center(child: Padding(padding: const EdgeInsets.symmetric(vertical: 8.0), child: Text(msg.content, style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey))));
+    if (msg.type == 'BUTTON') return _buildButtonContent(msg, isMe, style);
     final lowerContent = msg.content.toLowerCase();
     if (msg.type == 'location' || lowerContent.startsWith('lat:')) return _buildLocationBubble(msg.content, isMe, style);
     if (lowerContent.contains(RegExp(r'\.(m4a|mp3|wav|aac)'))) return AudioBubble(url: msg.content.startsWith('http') ? msg.content : '${_adhook.baseUrl}${msg.content}', isMe: isMe);
     if (msg.type == 'file' || msg.content.contains('/uploads/')) return _buildFileContent(msg, isMe, style);
     return _buildTextContent(msg, isMe, style);
+  }
+
+  Widget _buildButtonContent(AdhookMessage msg, bool isMe, AdhookChatStyle style) {
+    Map<String, dynamic> buttonData = {};
+    try {
+      buttonData = jsonDecode(msg.content);
+    } catch (_) {}
+
+    final text = buttonData['text'] ?? '';
+    final buttons = List<String>.from(buttonData['buttons'] ?? []);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(text, style: style.applyFont(isMe ? style.visitorTextStyle : style.agentTextStyle)),
+        if (buttons.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: buttons.map((btnText) {
+              return ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: style.primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(style.buttonRadius),
+                  ),
+                ),
+                onPressed: () {
+                  // Send text response over WebSocket
+                  _adhook.sendMessage(btnText);
+                },
+                child: Text(btnText, style: style.applyFont(const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+              );
+            }).toList(),
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _buildLocationBubble(String content, bool isMe, AdhookChatStyle style) {
