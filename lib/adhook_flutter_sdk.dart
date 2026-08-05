@@ -4,6 +4,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'src/models/message.dart';
 import 'src/models/style.dart';
@@ -111,13 +112,14 @@ class AdhookChat {
         if (localMsgs.isNotEmpty) {
           _messages.clear();
           _messages.addAll(localMsgs);
+          _messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
           _messageController.add(currentMessages);
         }
       }
 
       if (_sessionId == null) {
         await _createNewSession();
-      } else if (_messages.isEmpty) {
+      } else {
         await _fetchHistory();
       }
 
@@ -146,11 +148,16 @@ class AdhookChat {
           }
 
           if (eventType == 'new_message' || eventType == 'message') {
-            final msgData = decoded['message'] ?? decoded['data'];
+            final rawData = decoded['data'] is Map ? decoded['data'] : decoded['message'];
+            final Map<String, dynamic>? msgData = rawData is Map<String, dynamic>
+                ? rawData
+                : (rawData is Map ? Map<String, dynamic>.from(rawData) : null);
+
             if (msgData != null) {
               final msg = AdhookMessage.fromJson(msgData);
               if (!_messages.any((m) => m.id == msg.id && msg.id.isNotEmpty)) {
                 _messages.add(msg);
+                _messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
                 _messageController.add(currentMessages);
                 if (!kIsWeb) _localDb.saveMessage(msg);
               }
@@ -183,13 +190,13 @@ class AdhookChat {
             _errorController.add(decoded['error'] ?? "Unknown WebSocket error");
           }
         },
-        onDone: () {
-          _isConnected = false;
+        onError: (error) {
+          _log("WebSocket error: $error");
           _statusController.add(AdhookConnectionStatus.disconnected);
           _attemptReconnect();
         },
-        onError: (error) {
-          _isConnected = false;
+        onDone: () {
+          _log("WebSocket closed");
           _statusController.add(AdhookConnectionStatus.disconnected);
           _attemptReconnect();
         },
@@ -219,17 +226,26 @@ class AdhookChat {
         List<dynamic> items = [];
         if (decoded is List) {
           items = decoded;
+        } else if (decoded is Map && decoded['data'] is List) {
+          items = decoded['data'];
         } else if (decoded is Map && decoded['messages'] is List) {
           items = decoded['messages'];
         }
 
-        _messages.clear();
-        for (var item in items) { 
-          final msg = AdhookMessage.fromJson(item);
-          _messages.add(msg);
-          if (!kIsWeb) _localDb.saveMessage(msg); 
+        if (items.isNotEmpty) {
+          _messages.clear();
+          if (!kIsWeb) await _localDb.clearAll();
+
+          for (var item in items) {
+            if (item is Map) {
+              final msg = AdhookMessage.fromJson(Map<String, dynamic>.from(item));
+              _messages.add(msg);
+              if (!kIsWeb) await _localDb.saveMessage(msg);
+            }
+          }
+          _messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+          _messageController.add(currentMessages);
         }
-        _messageController.add(currentMessages);
       } else {
         _handleApiError(response);
       }
@@ -321,34 +337,54 @@ class AdhookChat {
     }));
   }
 
-  Future<void> pickAndUploadFile() async {
-    if (_sessionId == null) return;
-    final result = await FilePicker.platform.pickFiles(type: FileType.any, allowMultiple: false);
-    if (result != null) {
-      final file = result.files.single;
-      final request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/api/widget/upload'));
-      request.fields['session_id'] = _sessionId!;
-      request.headers['Authorization'] = 'Bearer $_apiKey';
-      if (file.bytes != null) {
-        request.files.add(http.MultipartFile.fromBytes('file', file.bytes!, filename: file.name));
-      } else if (file.path != null) {
-        request.files.add(await http.MultipartFile.fromPath('file', file.path!, filename: file.name));
-      }
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-      if (response.statusCode != 200) _handleApiError(response);
+  Future<void> _uploadFile({String? path, List<int>? bytes, required String fileName}) async {
+    if (_sessionId == null) {
+      _errorController.add('Session not ready. Please try again.');
+      return;
     }
-  }
-
-  Future<void> uploadFileFromPath(String path) async {
-    if (_sessionId == null) return;
     final request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/api/widget/upload'));
     request.fields['session_id'] = _sessionId!;
     request.headers['Authorization'] = 'Bearer $_apiKey';
-    request.files.add(await http.MultipartFile.fromPath('file', path));
+    if (bytes != null) {
+      request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: fileName));
+    } else if (path != null) {
+      request.files.add(await http.MultipartFile.fromPath('file', path, filename: fileName));
+    } else {
+      return;
+    }
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
     if (response.statusCode != 200) _handleApiError(response);
+  }
+
+  Future<void> pickFromGallery() async {
+    final picker = ImagePicker();
+    final xFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (xFile != null) {
+      await _uploadFile(path: xFile.path, fileName: xFile.name);
+    }
+  }
+
+  Future<void> takePhoto() async {
+    final picker = ImagePicker();
+    final xFile = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+    if (xFile != null) {
+      await _uploadFile(path: xFile.path, fileName: xFile.name);
+    }
+  }
+
+  Future<void> pickDocument() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.any, allowMultiple: false);
+    if (result != null) {
+      final file = result.files.single;
+      await _uploadFile(path: file.path, bytes: file.bytes, fileName: file.name);
+    }
+  }
+
+  Future<void> pickAndUploadFile() => pickDocument();
+
+  Future<void> uploadFileFromPath(String path) async {
+    await _uploadFile(path: path, fileName: path.split('/').last);
   }
 
   void dispose() {

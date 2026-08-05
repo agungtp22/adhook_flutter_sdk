@@ -35,6 +35,22 @@ class AdhookMessage {
     this.replyToSender,
   });
 
+  static DateTime parseCreatedAt(dynamic raw) {
+    if (raw == null) return DateTime.now();
+    if (raw is DateTime) return raw;
+    final str = raw.toString().trim();
+    if (str.isEmpty) return DateTime.now();
+
+    try {
+      String normalized = str.replaceAll(' ', 'T');
+      // Strip trailing timezone offsets (Z or +07:00 / -05:00) so we parse exact wall-clock time
+      normalized = normalized.replaceAll(RegExp(r'(Z|[+-]\d{2}:?\d{2})$'), '');
+      return DateTime.parse(normalized);
+    } catch (_) {
+      return DateTime.now();
+    }
+  }
+
   factory AdhookMessage.fromJson(Map<String, dynamic> json) {
     // Determine message type
     final messageType = json['type'] ?? json['message_type'] ?? 'TEXT';
@@ -52,9 +68,7 @@ class AdhookMessage {
       contactId: json['contact_id'],
       mediaUrl: json['media_url'] ?? json['file_url'],
       mimeType: json['mime_type'] ?? json['file_name'],
-      createdAt: json['created_at'] != null 
-          ? DateTime.parse(json['created_at']) 
-          : DateTime.now(),
+      createdAt: parseCreatedAt(json['created_at']),
       type: messageType,
       isRead: json['is_read'] ?? false,
       replyToId: json['reply_to_id']?.toString(),

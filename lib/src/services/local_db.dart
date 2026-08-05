@@ -107,7 +107,7 @@ class AdhookLocalDb {
         replyToId: maps[i]['reply_to_id']?.toString(),
         replyToContent: maps[i]['reply_to_content'],
         replyToSender: maps[i]['reply_to_sender'],
-        createdAt: DateTime.parse(maps[i]['created_at']),
+        createdAt: AdhookMessage.parseCreatedAt(maps[i]['created_at']),
       );
     });
   }

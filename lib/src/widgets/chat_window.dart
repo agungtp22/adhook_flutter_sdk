@@ -206,6 +206,167 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
     _adhook.sendLocation(position.latitude, position.longitude);
   }
 
+  void _showAttachmentSheet(AdhookChatStyle style) {
+    final isDark = style.brightness == Brightness.dark;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.grey[350],
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Share Content',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Choose how you\'d like to share',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white54 : Colors.grey[500],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _attachmentRow(
+                  icon: Icons.photo_library_rounded,
+                  gradient: [const Color(0xFF6366F1), const Color(0xFF8B5CF6)],
+                  emoji: '🖼️',
+                  title: 'Photo & Video',
+                  subtitle: 'Choose from your gallery',
+                  onTap: () { Navigator.pop(ctx); _adhook.pickFromGallery(); },
+                  isDark: isDark,
+                ),
+                const SizedBox(height: 10),
+                _attachmentRow(
+                  icon: Icons.camera_alt_rounded,
+                  gradient: [const Color(0xFF10B981), const Color(0xFF34D399)],
+                  emoji: '📸',
+                  title: 'Camera',
+                  subtitle: 'Take a photo now',
+                  onTap: () { Navigator.pop(ctx); _adhook.takePhoto(); },
+                  isDark: isDark,
+                ),
+                const SizedBox(height: 10),
+                _attachmentRow(
+                  icon: Icons.description_rounded,
+                  gradient: [const Color(0xFFF59E0B), const Color(0xFFF97316)],
+                  emoji: '📄',
+                  title: 'Document',
+                  subtitle: 'Send any file type',
+                  onTap: () { Navigator.pop(ctx); _adhook.pickDocument(); },
+                  isDark: isDark,
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _attachmentRow({
+    required IconData icon,
+    required List<Color> gradient,
+    required String emoji,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey[50],
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey[200]!,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: gradient),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Center(
+                  child: Text(emoji, style: const TextStyle(fontSize: 22)),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark ? Colors.white38 : Colors.grey[500],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.grey[200],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: isDark ? Colors.white54 : Colors.grey[500],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _startRecording() async {
     try {
       if (await _audioRecorder.hasPermission()) {
@@ -269,6 +430,12 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
         colorScheme: ColorScheme.fromSeed(
           seedColor: style.primaryColor,
           brightness: style.brightness,
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          filled: false,
         ),
         textTheme: Theme.of(context).textTheme.apply(
           fontFamily: style.fontFamily, 
@@ -451,11 +618,80 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
   Widget _buildMessageBody(AdhookMessage msg, bool isMe, AdhookChatStyle style) {
     if (msg.type == 'system') return Center(child: Padding(padding: const EdgeInsets.symmetric(vertical: 8.0), child: Text(msg.content, style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey))));
     if (msg.type == 'BUTTON') return _buildButtonContent(msg, isMe, style);
+
+    final typeLower = msg.type.toLowerCase();
+    final mediaUrl = msg.mediaUrl ?? '';
     final lowerContent = msg.content.toLowerCase();
-    if (msg.type == 'location' || lowerContent.startsWith('lat:')) return _buildLocationBubble(msg.content, isMe, style);
-    if (lowerContent.contains(RegExp(r'\.(m4a|mp3|wav|aac)'))) return AudioBubble(url: msg.content.startsWith('http') ? msg.content : '${_adhook.baseUrl}${msg.content}', isMe: isMe);
-    if (msg.type == 'file' || msg.content.contains('/uploads/')) return _buildFileContent(msg, isMe, style);
+    final lowerMediaUrl = mediaUrl.toLowerCase();
+
+    // Check if message is Image
+    final isImage = typeLower == 'image' ||
+        (mediaUrl.isNotEmpty && (lowerMediaUrl.contains(RegExp(r'\.(jpg|jpeg|png|gif|webp)')) || typeLower == 'image')) ||
+        lowerContent.contains(RegExp(r'\.(jpg|jpeg|png|gif|webp)'));
+
+    if (isImage) {
+      final imgPath = mediaUrl.isNotEmpty ? mediaUrl : msg.content;
+      final fullUrl = imgPath.startsWith('http') ? imgPath : '${_adhook.baseUrl}$imgPath';
+      return _buildImageContent(msg, fullUrl, isMe, style);
+    }
+
+    if (typeLower == 'location' || lowerContent.startsWith('lat:')) return _buildLocationBubble(msg.content, isMe, style);
+
+    final isAudio = typeLower == 'audio' ||
+        lowerContent.contains(RegExp(r'\.(m4a|mp3|wav|aac)')) ||
+        lowerMediaUrl.contains(RegExp(r'\.(m4a|mp3|wav|aac)'));
+
+    if (isAudio) {
+      final audioPath = mediaUrl.isNotEmpty ? mediaUrl : msg.content;
+      final audioUrl = audioPath.startsWith('http') ? audioPath : '${_adhook.baseUrl}$audioPath';
+      return AudioBubble(url: audioUrl, isMe: isMe);
+    }
+
+    if (typeLower == 'file' || mediaUrl.isNotEmpty || lowerContent.contains('/uploads/')) {
+      return _buildFileContent(msg, isMe, style);
+    }
+
     return _buildTextContent(msg, isMe, style);
+  }
+
+  Widget _buildImageContent(AdhookMessage msg, String url, bool isMe, AdhookChatStyle style) {
+    final hasCaption = msg.content.isNotEmpty && msg.content != url && msg.content != msg.mediaUrl;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: () => _onImageTap(url),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.network(
+              url,
+              width: 220,
+              fit: BoxFit.cover,
+              errorBuilder: (c, e, s) => Container(
+                width: 220,
+                height: 120,
+                color: Colors.grey[200],
+                child: const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.broken_image_rounded, color: Colors.grey, size: 28),
+                    SizedBox(height: 4),
+                    Text(
+                      'Gagal memuat gambar',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (hasCaption) ...[
+          const SizedBox(height: 6),
+          Text(msg.content, style: style.applyFont(isMe ? style.visitorTextStyle : style.agentTextStyle)),
+        ],
+      ],
+    );
   }
 
   Widget _buildButtonContent(AdhookMessage msg, bool isMe, AdhookChatStyle style) {
@@ -576,9 +812,10 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
   }
 
   Widget _buildFileContent(AdhookMessage msg, bool isMe, AdhookChatStyle style) {
-    final url = msg.content.startsWith('http') ? msg.content : '${_adhook.baseUrl}${msg.content}';
+    final filePath = (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) ? msg.mediaUrl! : msg.content;
+    final url = filePath.startsWith('http') ? filePath : '${_adhook.baseUrl}$filePath';
     final lowerUrl = url.toLowerCase();
-    if (lowerUrl.contains(RegExp(r'\.(jpg|jpeg|png|gif|webp)'))) return GestureDetector(onTap: () => _onImageTap(url), child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(url, width: 200, fit: BoxFit.cover, errorBuilder: (c, e, s) => const Icon(Icons.broken_image))));
+    if (lowerUrl.contains(RegExp(r'\.(jpg|jpeg|png|gif|webp)'))) return _buildImageContent(msg, url, isMe, style);
     if (lowerUrl.contains('.pdf')) return _buildPdfCard(url, isMe, style);
     return _buildGenericFile(url, isMe, style);
   }
@@ -672,7 +909,7 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                 if (style.allowAttachment) 
                   IconButton(
                     icon: Icon(Icons.add_circle_outline_rounded, color: Colors.grey[600], size: 26), 
-                    onPressed: () => _adhook.pickAndUploadFile()
+                    onPressed: () => _showAttachmentSheet(style)
                   ),
                 if (style.allowLocationSharing) 
                   IconButton(
