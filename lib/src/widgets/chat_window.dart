@@ -491,7 +491,19 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                     ),
                   ),
                 ],
-              ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.history_rounded, color: Colors.white),
+                  tooltip: 'Riwayat Chat',
+                  onPressed: () => _showHistoryBottomSheet(context),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.phone_rounded, color: Colors.white),
+                  tooltip: 'Panggilan Suara CS',
+                  onPressed: () => _startVoiceCall(context),
+                ),
+                const SizedBox(width: 4),
+              ],
               backgroundColor: style.primaryColor,
               foregroundColor: style.appBarTitleStyle?.color ?? Colors.white,
             )
@@ -1014,12 +1026,458 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
     );
   }
 
+  void _showHistoryBottomSheet(BuildContext context) async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return _HistoryListOverlay(
+          adhook: _adhook,
+          style: widget.style,
+          onSelectConversation: (convId) async {
+            Navigator.pop(ctx);
+            await _adhook.openConversation(convId);
+          },
+          onNewChat: () async {
+            Navigator.pop(ctx);
+            await _adhook.startNewConversation();
+          },
+        );
+      },
+    );
+  }
+
+  void _startVoiceCall(BuildContext context) async {
+    showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return _VoiceCallOverlay(
+          adhook: _adhook,
+          style: widget.style,
+        );
+      },
+    );
+  }
+
   void _handleSend() {
     if (_controller.text.trim().isEmpty) return;
     _typingTimer?.cancel();
     _adhook.sendMessage(_controller.text.trim(), replyToId: _replyingTo?.id);
     _controller.clear();
     setState(() => _replyingTo = null);
+  }
+}
+
+class _VoiceCallOverlay extends StatefulWidget {
+  final AdhookChat adhook;
+  final AdhookChatStyle style;
+
+  const _VoiceCallOverlay({required this.adhook, required this.style});
+
+  @override
+  State<_VoiceCallOverlay> createState() => _VoiceCallOverlayState();
+}
+
+class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
+  bool _isConnecting = true;
+  bool _isConnected = false;
+  bool _isMuted = false;
+  int _callSeconds = 0;
+  Timer? _timer;
+  String? _roomName;
+  String? _egressId;
+  StreamSubscription? _callSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _initiateCall();
+
+    _callSub = widget.adhook.callEventStream.listen((event) {
+      final eventName = event['event'];
+      if (eventName == 'CALL_ENDED' || eventName == 'CALL_REJECTED') {
+        if (mounted) {
+          _cleanupAndPop();
+        }
+      }
+    });
+  }
+
+  void _initiateCall() async {
+    try {
+      final res = await widget.adhook.initiateVoiceCall();
+      _roomName = res['room_name'];
+      _egressId = res['egress_id'];
+      
+      if (mounted) {
+        setState(() {
+          _isConnecting = false;
+          _isConnected = true;
+        });
+        _startTimer();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isConnecting = false;
+        });
+      }
+    }
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    _callSeconds = 0;
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (mounted) {
+        setState(() {
+          _callSeconds++;
+        });
+      }
+    });
+  }
+
+  void _cleanupAndPop() {
+    _timer?.cancel();
+    _callSub?.cancel();
+    if (Navigator.canPop(context)) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  void _endCall() async {
+    if (_roomName != null) {
+      await widget.adhook.endVoiceCall(roomName: _roomName!, egressId: _egressId);
+    }
+    _cleanupAndPop();
+  }
+
+  String _formatTimer(int seconds) {
+    final mins = (seconds ~/ 60).toString().padLeft(2, '0');
+    final secs = (seconds % 60).toString().padLeft(2, '0');
+    return "$mins:$secs";
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _callSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primaryColor = widget.style.primaryColor;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 20, offset: Offset(0, -4))],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.phone_in_talk_rounded, color: Color(0xFF0284C7), size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    "ADMEDIKA VOICE SYSTEM",
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0284C7), letterSpacing: 0.5),
+                  ),
+                ],
+              ),
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
+                  child: const Text("Sembunyikan", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: primaryColor,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: primaryColor.withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 6))],
+            ),
+            child: const Center(
+              child: Text("CS", style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text("CS Agent AdMedika", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+          const SizedBox(height: 4),
+          Text(
+            _isConnecting
+                ? "Menghubungkan ke CS AdMedika..."
+                : (_isConnected ? "🟢 Terhubung ke CS Agent" : "❌ Panggilan Berakhir"),
+            style: TextStyle(fontSize: 13, color: _isConnected ? const Color(0xFF10B981) : Colors.grey[600], fontWeight: FontWeight.w600),
+          ),
+          if (_isConnected) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Text(
+                _formatTimer(_callSeconds),
+                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, fontFamily: 'monospace', color: Color(0xFF0F172A)),
+              ),
+            ),
+          ],
+          const SizedBox(height: 28),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _isMuted = !_isMuted;
+                    });
+                  },
+                  icon: Icon(_isMuted ? Icons.mic_off_rounded : Icons.mic_rounded),
+                  label: Text(_isMuted ? "Unmute" : "Mute"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isMuted ? const Color(0xFFFEF3C7) : const Color(0xFFF1F5F9),
+                    foregroundColor: _isMuted ? const Color(0xFFB45309) : const Color(0xFF334155),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _endCall,
+                  icon: const Icon(Icons.phone_disabled_rounded),
+                  label: const Text("Akhiri"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF43F5E),
+                    foregroundColor: Colors.white,
+                    elevation: 2,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryListOverlay extends StatefulWidget {
+  final AdhookChat adhook;
+  final AdhookChatStyle style;
+  final Function(int convId) onSelectConversation;
+  final VoidCallback onNewChat;
+
+  const _HistoryListOverlay({
+    required this.adhook,
+    required this.style,
+    required this.onSelectConversation,
+    required this.onNewChat,
+  });
+
+  @override
+  State<_HistoryListOverlay> createState() => _HistoryListOverlayState();
+}
+
+class _HistoryListOverlayState extends State<_HistoryListOverlay> {
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _conversations = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadConversations();
+  }
+
+  void _loadConversations() async {
+    final list = await widget.adhook.fetchConversationsList();
+    if (mounted) {
+      setState(() {
+        _conversations = list;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.style.brightness == Brightness.dark;
+    final primaryColor = widget.style.primaryColor;
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 20, offset: Offset(0, -4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.history_rounded, color: primaryColor, size: 22),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Riwayat Percakapan",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                  ),
+                ],
+              ),
+              ElevatedButton.icon(
+                onPressed: widget.onNewChat,
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text("Chat Baru"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  elevation: 1,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : (_conversations.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.chat_bubble_outline_rounded, size: 48, color: Colors.grey[400]),
+                            const SizedBox(height: 12),
+                            Text("Belum ada riwayat percakapan", style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: _conversations.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final conv = _conversations[index];
+                          final id = conv['id'];
+                          final lastMsg = conv['last_message'] ?? 'Belum ada pesan';
+                          final isActive = conv['is_active'] == true;
+                          final dateStr = conv['last_message_at'] != null
+                              ? DateFormat('dd MMM, HH:mm').format(DateTime.parse(conv['last_message_at']).toLocal())
+                              : '';
+
+                          return Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () => widget.onSelectConversation(id),
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          "Percakapan #$id",
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            color: isDark ? Colors.white : const Color(0xFF1E293B),
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(
+                                            color: isActive ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: isActive ? const Color(0xFFA7F3D0) : const Color(0xFFE2E8F0),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            isActive ? "🟢 Aktif" : "⚪ Selesai",
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color: isActive ? const Color(0xFF059669) : const Color(0xFF64748B),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      lastMsg,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: isDark ? Colors.white70 : const Color(0xFF475569),
+                                      ),
+                                    ),
+                                    if (dateStr.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          dateStr,
+                                          style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      )),
+          ),
+        ],
+      ),
+    );
   }
 }
 

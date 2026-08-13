@@ -293,6 +293,44 @@ class AdhookChat {
     }
   }
 
+  /// Fetch all historical conversations for the current visitor
+  Future<List<Map<String, dynamic>>> fetchConversationsList() async {
+    if (_baseUrl == null) return [];
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final visitorId = prefs.getString('adhook_visitor_id') ?? "visitor-${DateTime.now().millisecondsSinceEpoch}";
+      final url = Uri.parse('$_baseUrl/api/widget/conversations/$visitorId?widget_key=$_widgetKey');
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['conversations'] is List) {
+          return List<Map<String, dynamic>>.from(data['conversations']);
+        }
+      }
+    } catch (e) {
+      _log("Error fetching conversations list: $e");
+    }
+    return [];
+  }
+
+  /// Switch to a specific conversation history
+  Future<void> openConversation(int conversationId) async {
+    await _saveSession(conversationId.toString());
+    _messages.clear();
+    _messageController.add(currentMessages);
+    await connect();
+  }
+
+  /// Start a brand new conversation
+  Future<void> startNewConversation() async {
+    _sessionId = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('adhook_session_id');
+    _messages.clear();
+    _messageController.add(currentMessages);
+    await connect();
+  }
+
   void _handleApiError(http.Response response) {
     try {
       final data = jsonDecode(response.body);
