@@ -491,6 +491,7 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                     ),
                   ),
                 ],
+              ),
               actions: [
                 IconButton(
                   icon: const Icon(Icons.history_rounded, color: Colors.white),
