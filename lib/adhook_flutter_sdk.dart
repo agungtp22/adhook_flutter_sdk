@@ -52,6 +52,9 @@ class AdhookChat {
   final _errorController = StreamController<String>.broadcast();
   Stream<String> get errorStream => _errorController.stream;
 
+  final _callEventController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get callEventStream => _callEventController.stream;
+
   List<AdhookMessage> get currentMessages => List.unmodifiable(_messages);
   String? get baseUrl => _baseUrl;
   bool get hasUserInfo => _userName != null && _userName!.isNotEmpty;
@@ -186,6 +189,11 @@ class AdhookChat {
             _messageController.add(currentMessages);
           }
           
+          if (eventType == 'CALL_ENDED' || eventType == 'CALL_REJECTED' || eventType == 'INCOMING_CALL' || eventType == 'CALL_ACCEPTED') {
+            _log("Voice Call event received: $eventType");
+            _callEventController.add(Map<String, dynamic>.from(decoded));
+          }
+
           if (eventType == 'error') {
             _errorController.add(decoded['error'] ?? "Unknown WebSocket error");
           }
@@ -382,6 +390,107 @@ class AdhookChat {
   }
 
   Future<void> pickAndUploadFile() => pickDocument();
+
+  /// Request a LiveKit WebRTC access token strictly for Voice Call only
+  Future<Map<String, dynamic>> fetchLiveKitToken({
+    String? roomName,
+    String? identity,
+    String? name,
+    bool isAgent = false,
+  }) async {
+    if (_baseUrl == null) {
+      throw Exception('AdhookChat is not initialized. Please call AdhookChat.init() first.');
+    }
+
+    final effectiveRoomName = (roomName != null && roomName.isNotEmpty)
+        ? roomName
+        : (_sessionId != null ? 'room_conv_$_sessionId' : 'room_voice_${DateTime.now().millisecondsSinceEpoch}');
+    final effectiveIdentity = (identity != null && identity.isNotEmpty)
+        ? identity
+        : (_sessionId ?? _userPhone ?? 'user_${DateTime.now().millisecondsSinceEpoch}');
+    final effectiveName = (name != null && name.isNotEmpty)
+        ? name
+        : (_userName ?? 'Peserta AdMedika');
+
+    final url = Uri.parse('$_baseUrl/api/livekit/token');
+    final response = await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        if (_apiKey != null) 'Authorization': 'Bearer $_apiKey',
+      },
+      body: jsonEncode({
+        'room_name': effectiveRoomName,
+        'identity': effectiveIdentity,
+        'name': effectiveName,
+        'is_agent': isAgent,
+        'call_type': 'voice',
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      throw Exception('Failed to fetch LiveKit token: ${response.body}');
+    }
+  }
+
+  /// Initiate a Voice Call: Generates token, triggers auto-recording, and alerts Dashboard Agents
+  Future<Map<String, dynamic>> initiateVoiceCall({
+    String? roomName,
+    String? callerName,
+  }) async {
+    if (_baseUrl == null) {
+      throw Exception('AdhookChat is not initialized. Please call AdhookChat.init() first.');
+    }
+
+    final effectiveCallerName = (callerName != null && callerName.isNotEmpty)
+        ? callerName
+        : (_userName ?? 'Peserta AdMedika');
+
+    final url = Uri.parse('$_baseUrl/api/livekit/call/initiate');
+    final response = await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        if (_apiKey != null) 'Authorization': 'Bearer $_apiKey',
+      },
+      body: jsonEncode({
+        'room_name': roomName,
+        'caller_name': effectiveCallerName,
+        'caller_phone': _userPhone ?? '',
+        'session_id': _sessionId ?? '',
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      throw Exception('Failed to initiate voice call: ${response.body}');
+    }
+  }
+
+  /// End an active Voice Call
+  Future<void> endVoiceCall({
+    required String roomName,
+    String? egressId,
+  }) async {
+    _callEventController.add({'event': 'CALL_ENDED', 'room_name': roomName});
+    if (_baseUrl == null) return;
+
+    final url = Uri.parse('$_baseUrl/api/livekit/call/end');
+    await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        if (_apiKey != null) 'Authorization': 'Bearer $_apiKey',
+      },
+      body: jsonEncode({
+        'room_name': roomName,
+        'egress_id': egressId ?? '',
+      }),
+    );
+  }
 
   Future<void> uploadFileFromPath(String path) async {
     await _uploadFile(path: path, fileName: path.split('/').last);
