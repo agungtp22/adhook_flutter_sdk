@@ -382,7 +382,7 @@ class AdhookChat {
   }
 
   Future<void> pickDocument() async {
-    final result = await FilePicker.pickFiles(type: FileType.any, allowMultiple: false);
+    final result = await FilePicker.platform.pickFiles(type: FileType.any, allowMultiple: false);
     if (result != null) {
       final file = result.files.single;
       await _uploadFile(path: file.path, bytes: file.bytes, fileName: file.name);
