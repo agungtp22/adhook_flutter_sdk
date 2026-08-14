@@ -54,6 +54,8 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
   // Link Preview Cache
   final Map<String, PreviewData> _previewDataCache = {};
 
+  bool _hasShownRating = false;
+
   @override
   void initState() {
     super.initState();
@@ -78,7 +80,10 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
     
     _adhook.messageHistory.listen((messages) {
        if (messages.isNotEmpty && messages.last.type == 'system' && messages.last.content == 'conversation_closed') {
-         _showRatingDialog();
+         if (!_hasShownRating) {
+           _hasShownRating = true;
+           _showRatingDialog();
+         }
        }
     });
   }
