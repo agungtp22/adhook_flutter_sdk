@@ -504,6 +504,14 @@ class AdhookChat {
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     } else {
+      try {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['error'] != null) {
+          throw Exception(data['error'].toString());
+        }
+      } catch (e) {
+        if (e.toString().contains('Exception:')) rethrow;
+      }
       throw Exception('Failed to initiate voice call: ${response.body}');
     }
   }
