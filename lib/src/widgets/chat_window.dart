@@ -163,7 +163,10 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context), 
+              onPressed: () async {
+                await _adhook.startNewConversation();
+                if (context.mounted) Navigator.pop(context);
+              }, 
               child: const Text("Skip", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600))
             ),
             ElevatedButton(
@@ -174,16 +177,19 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
-              onPressed: () {
+              onPressed: () async {
                 _adhook.submitRating(selectedRating, commentController.text.trim());
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text("Thank you for your feedback!"),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  )
-                );
+                await _adhook.startNewConversation();
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text("Thank you for your feedback!"),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    )
+                  );
+                }
               },
               child: const Text("Submit", style: TextStyle(fontWeight: FontWeight.bold)),
             ),

@@ -321,13 +321,18 @@ class AdhookChat {
     await connect();
   }
 
-  /// Start a brand new conversation
-  Future<void> startNewConversation() async {
+  /// Clear current session from storage & memory
+  Future<void> clearSession() async {
     _sessionId = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('adhook_session_id');
     _messages.clear();
     _messageController.add(currentMessages);
+  }
+
+  /// Start a brand new conversation
+  Future<void> startNewConversation() async {
+    await clearSession();
     await connect();
   }
 
