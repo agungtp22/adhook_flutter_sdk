@@ -25,6 +25,7 @@ dependencies:
   photo_view: ^0.15.0
   sqflite: ^2.3.0
   path: ^1.9.0
+  livekit_client: ^2.4.0
 
 dev_dependencies:
   flutter_test:

@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:photo_view/photo_view.dart';
+import 'package:livekit_client/livekit_client.dart';
 import '../../adhook_flutter_sdk.dart';
 
 class AdhookChatWindow extends StatefulWidget {
@@ -1092,6 +1093,8 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
   String? _roomName;
   String? _egressId;
   StreamSubscription? _callSub;
+  Room? _livekitRoom;
+  EventsListener<RoomEvent>? _roomListener;
 
   @override
   void initState() {
@@ -1113,7 +1116,31 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
       final res = await widget.adhook.initiateVoiceCall();
       _roomName = res['room_name'];
       _egressId = res['egress_id'];
-      
+      final token = res['token'];
+      final wsUrl = res['ws_url'] ?? 'ws://43.129.51.220:7880';
+
+      if (token != null && token.toString().isNotEmpty) {
+        try {
+          _livekitRoom = Room(
+            roomOptions: const RoomOptions(
+              adaptiveStream: false,
+              dynacast: false,
+            ),
+          );
+          _roomListener = _livekitRoom!.createListener();
+          _roomListener!.on<TrackSubscribedEvent>((event) {
+            if (event.track is AudioTrack) {
+              event.track.start();
+            }
+          });
+
+          await _livekitRoom!.connect(wsUrl, token.toString());
+          await _livekitRoom!.localParticipant?.setMicrophoneEnabled(true);
+        } catch (e) {
+          debugPrint('[VoiceCallOverlay] LiveKit WebRTC error: $e');
+        }
+      }
+
       if (mounted) {
         setState(() {
           _isConnecting = false;
@@ -1142,9 +1169,14 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
     });
   }
 
-  void _cleanupAndPop() {
+  void _cleanupAndPop() async {
     _timer?.cancel();
     _callSub?.cancel();
+    try {
+      await _livekitRoom?.localParticipant?.setMicrophoneEnabled(false);
+      await _livekitRoom?.disconnect();
+      await _livekitRoom?.dispose();
+    } catch (_) {}
     if (Navigator.canPop(context)) {
       Navigator.of(context).pop();
     }
@@ -1157,6 +1189,16 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
     _cleanupAndPop();
   }
 
+  void _toggleMute() async {
+    final newMute = !_isMuted;
+    setState(() {
+      _isMuted = newMute;
+    });
+    try {
+      await _livekitRoom?.localParticipant?.setMicrophoneEnabled(!newMute);
+    } catch (_) {}
+  }
+
   String _formatTimer(int seconds) {
     final mins = (seconds ~/ 60).toString().padLeft(2, '0');
     final secs = (seconds % 60).toString().padLeft(2, '0');
@@ -1167,6 +1209,10 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
   void dispose() {
     _timer?.cancel();
     _callSub?.cancel();
+    try {
+      _livekitRoom?.disconnect();
+      _livekitRoom?.dispose();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -1248,11 +1294,7 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _isMuted = !_isMuted;
-                    });
-                  },
+                  onPressed: _toggleMute,
                   icon: Icon(_isMuted ? Icons.mic_off_rounded : Icons.mic_rounded),
                   label: Text(_isMuted ? "Unmute" : "Mute"),
                   style: ElevatedButton.styleFrom(
