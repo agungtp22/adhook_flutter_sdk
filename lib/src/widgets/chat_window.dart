@@ -79,7 +79,9 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
     });
     
     _adhook.messageHistory.listen((messages) {
-       if (messages.isNotEmpty && messages.last.type == 'system' && messages.last.content == 'conversation_closed') {
+       if (messages.isNotEmpty && 
+          (messages.last.type == 'system' || messages.last.sender == AdhookSender.system) && 
+          (messages.last.content == 'conversation_closed' || messages.last.content.contains('conversation_closed'))) {
          if (!_hasShownRating) {
            _hasShownRating = true;
            _showRatingDialog();

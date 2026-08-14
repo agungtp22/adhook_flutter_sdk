@@ -1,4 +1,4 @@
-enum AdhookSender { visitor, agent }
+enum AdhookSender { visitor, agent, system }
 
 class AdhookMessage {
   final String id;
@@ -56,14 +56,19 @@ class AdhookMessage {
     final messageType = json['type'] ?? json['message_type'] ?? 'TEXT';
 
     // Normalize sender type
-    final senderType = json['sender_type'] ?? '';
-    final isVisitor = senderType == 'visitor' || senderType == 'USER';
+    final senderType = (json['sender_type'] ?? '').toString().toLowerCase();
+    final isVisitor = senderType == 'visitor' || senderType == 'user';
+    final isSystem = senderType == 'system' || messageType.toString().toLowerCase() == 'system';
+
+    final AdhookSender senderEnum = isSystem
+        ? AdhookSender.system
+        : (isVisitor ? AdhookSender.visitor : AdhookSender.agent);
 
     return AdhookMessage(
       id: (json['id'] ?? '').toString(),
       content: json['content'] ?? json['message_text'] ?? '',
-      sender: isVisitor ? AdhookSender.visitor : AdhookSender.agent,
-      senderName: json['sender_name'] ?? json['agent_name'] ?? (isVisitor ? 'User' : 'Agent'),
+      sender: senderEnum,
+      senderName: json['sender_name'] ?? json['agent_name'] ?? (isSystem ? 'System' : (isVisitor ? 'User' : 'Agent')),
       conversationId: json['conversation_id'],
       contactId: json['contact_id'],
       mediaUrl: json['media_url'] ?? json['file_url'],

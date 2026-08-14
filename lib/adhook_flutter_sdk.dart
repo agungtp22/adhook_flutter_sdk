@@ -180,6 +180,23 @@ class AdhookChat {
             _messageController.add(currentMessages);
           }
 
+          if (eventType == 'system' || eventType == 'conversation_closed' || eventType == 'conversation_ended') {
+            final rawData = decoded['data'] is Map ? decoded['data'] : decoded;
+            final String text = (rawData['message_text'] ?? rawData['content'] ?? rawData['text'] ?? 'conversation_closed').toString();
+
+            final sysMsg = AdhookMessage(
+              id: 'sys-${DateTime.now().millisecondsSinceEpoch}',
+              content: text.isNotEmpty ? text : 'conversation_closed',
+              sender: AdhookSender.system,
+              createdAt: DateTime.now(),
+              type: 'system'
+            );
+            _messages.add(sysMsg);
+            _messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+            _messageController.add(currentMessages);
+            _log("Received system/close event: $text");
+          }
+
           if (eventType == 'widget_typing' || eventType == 'typing') {
             _typingController.add(decoded['is_typing'] ?? decoded['data']?['is_typing'] ?? false);
           }
