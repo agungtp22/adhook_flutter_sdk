@@ -189,7 +189,7 @@ class AdhookChat {
             _messageController.add(currentMessages);
           }
           
-          if (eventType == 'CALL_ENDED' || eventType == 'CALL_REJECTED' || eventType == 'INCOMING_CALL' || eventType == 'CALL_ACCEPTED') {
+          if (eventType == 'CALL_ENDED' || eventType == 'CALL_REJECTED' || eventType == 'INCOMING_CALL' || eventType == 'CALL_ACCEPTED' || eventType == 'CALL_HOLD') {
             _log("Voice Call event received: $eventType");
             _callEventController.add(Map<String, dynamic>.from(decoded));
           }
