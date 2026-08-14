@@ -1088,6 +1088,7 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
   bool _isConnecting = true;
   bool _isConnected = false;
   bool _isMuted = false;
+  bool _isSpeakerOn = true;
   int _callSeconds = 0;
   Timer? _timer;
   String? _roomName;
@@ -1136,6 +1137,9 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
 
           await _livekitRoom!.connect(wsUrl, token.toString());
           await _livekitRoom!.localParticipant?.setMicrophoneEnabled(true);
+          try {
+            await Hardware.instance.setSpeakerphoneOn(true);
+          } catch (_) {}
         } catch (e) {
           debugPrint('[VoiceCallOverlay] LiveKit WebRTC error: $e');
         }
@@ -1197,6 +1201,18 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
     try {
       await _livekitRoom?.localParticipant?.setMicrophoneEnabled(!newMute);
     } catch (_) {}
+  }
+
+  void _toggleSpeaker() async {
+    final newSpeaker = !_isSpeakerOn;
+    setState(() {
+      _isSpeakerOn = newSpeaker;
+    });
+    try {
+      await Hardware.instance.setSpeakerphoneOn(newSpeaker);
+    } catch (e) {
+      debugPrint('[VoiceCallOverlay] Hardware speaker error: $e');
+    }
   }
 
   String _formatTimer(int seconds) {
@@ -1295,8 +1311,8 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: _toggleMute,
-                  icon: Icon(_isMuted ? Icons.mic_off_rounded : Icons.mic_rounded),
-                  label: Text(_isMuted ? "Unmute" : "Mute"),
+                  icon: Icon(_isMuted ? Icons.mic_off_rounded : Icons.mic_rounded, size: 20),
+                  label: Text(_isMuted ? "Unmute" : "Mute", style: const TextStyle(fontSize: 13)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _isMuted ? const Color(0xFFFEF3C7) : const Color(0xFFF1F5F9),
                     foregroundColor: _isMuted ? const Color(0xFFB45309) : const Color(0xFF334155),
@@ -1306,12 +1322,27 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _toggleSpeaker,
+                  icon: Icon(_isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_down_rounded, size: 20),
+                  label: Text(_isSpeakerOn ? "Speaker" : "Earpiece", style: const TextStyle(fontSize: 13)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isSpeakerOn ? const Color(0xFFE0F2FE) : const Color(0xFFF1F5F9),
+                    foregroundColor: _isSpeakerOn ? const Color(0xFF0369A1) : const Color(0xFF334155),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: _endCall,
-                  icon: const Icon(Icons.phone_disabled_rounded),
-                  label: const Text("Akhiri"),
+                  icon: const Icon(Icons.phone_disabled_rounded, size: 20),
+                  label: const Text("Akhiri", style: TextStyle(fontSize: 13)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFF43F5E),
                     foregroundColor: Colors.white,
