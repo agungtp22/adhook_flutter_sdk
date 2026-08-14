@@ -257,10 +257,11 @@ class AdhookChat {
           items = decoded['messages'];
         }
 
-        if (items.isNotEmpty) {
-          _messages.clear();
-          if (!kIsWeb) await _localDb.clearAll();
+        // Unconditionally clear in-memory messages and SQLite local database for the session
+        _messages.clear();
+        if (!kIsWeb) await _localDb.clearAll();
 
+        if (items.isNotEmpty) {
           for (var item in items) {
             if (item is Map) {
               final msg = AdhookMessage.fromJson(Map<String, dynamic>.from(item));
@@ -269,8 +270,8 @@ class AdhookChat {
             }
           }
           _messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-          _messageController.add(currentMessages);
         }
+        _messageController.add(currentMessages);
       } else {
         _handleApiError(response);
       }
@@ -344,6 +345,7 @@ class AdhookChat {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('adhook_session_id');
     _messages.clear();
+    if (!kIsWeb) await _localDb.clearAll();
     _messageController.add(currentMessages);
   }
 
