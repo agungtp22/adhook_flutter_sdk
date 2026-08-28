@@ -55,6 +55,11 @@ class AdhookChat {
   final _callEventController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get callEventStream => _callEventController.stream;
 
+  bool _isUploading = false;
+  bool get isUploading => _isUploading;
+  final _uploadProgressController = StreamController<bool>.broadcast();
+  Stream<bool> get uploadStatusStream => _uploadProgressController.stream;
+
   List<AdhookMessage> get currentMessages => List.unmodifiable(_messages);
   String? get baseUrl => _baseUrl;
   bool get hasUserInfo => _userName != null && _userName!.isNotEmpty;
@@ -412,19 +417,30 @@ class AdhookChat {
       _errorController.add('Session not ready. Please try again.');
       return;
     }
-    final request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/api/widget/upload'));
-    request.fields['session_id'] = _sessionId!;
-    request.headers['Authorization'] = 'Bearer $_apiKey';
-    if (bytes != null) {
-      request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: fileName));
-    } else if (path != null) {
-      request.files.add(await http.MultipartFile.fromPath('file', path, filename: fileName));
-    } else {
-      return;
+
+    _isUploading = true;
+    _uploadProgressController.add(true);
+
+    try {
+      final request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/api/widget/upload'));
+      request.fields['session_id'] = _sessionId!;
+      request.headers['Authorization'] = 'Bearer $_apiKey';
+      if (bytes != null) {
+        request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: fileName));
+      } else if (path != null) {
+        request.files.add(await http.MultipartFile.fromPath('file', path, filename: fileName));
+      } else {
+        return;
+      }
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+      if (response.statusCode != 200) _handleApiError(response);
+    } catch (e) {
+      _errorController.add("Upload failed: $e");
+    } finally {
+      _isUploading = false;
+      _uploadProgressController.add(false);
     }
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-    if (response.statusCode != 200) _handleApiError(response);
   }
 
   Future<void> pickFromGallery() async {

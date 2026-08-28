@@ -615,6 +615,7 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                       },
                     ),
                   ),
+                  _buildUploadProgressIndicator(style),
                   _buildInputArea(style),
                 ],
               ),
@@ -823,6 +824,78 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
           padding: const EdgeInsets.symmetric(vertical: 6), 
           color: color, 
           child: Text(text, textAlign: TextAlign.center, style: style.applyFont(const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)))
+        );
+      },
+    );
+  }
+
+  Widget _buildUploadProgressIndicator(AdhookChatStyle style) {
+    return StreamBuilder<bool>(
+      stream: _adhook.uploadStatusStream,
+      initialData: _adhook.isUploading,
+      builder: (context, snapshot) {
+        if (snapshot.data != true) return const SizedBox.shrink();
+        
+        final isDark = style.brightness == Brightness.dark;
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? const Color(0xFF334155) : const Color(0xFFBFDBFE),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(style.primaryColor),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "Uploading media file...",
+                      style: style.applyFont(TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : const Color(0xFF1E3A8A),
+                      )),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "Please wait, sending to server...",
+                      style: style.applyFont(TextStyle(
+                        fontSize: 11,
+                        color: isDark ? Colors.white60 : const Color(0xFF3B82F6),
+                      )),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.cloud_upload_rounded,
+                color: style.primaryColor,
+                size: 20,
+              ),
+            ],
+          ),
         );
       },
     );
