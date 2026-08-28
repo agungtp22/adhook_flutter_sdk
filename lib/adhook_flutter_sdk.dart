@@ -429,7 +429,24 @@ class AdhookChat {
 
   Future<void> pickFromGallery() async {
     final picker = ImagePicker();
-    final xFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    try {
+      final xFile = await picker.pickMedia();
+      if (xFile != null) {
+        await _uploadFile(path: xFile.path, fileName: xFile.name);
+        return;
+      }
+    } catch (_) {
+      // Fallback if pickMedia is not supported on older platforms
+      final xFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+      if (xFile != null) {
+        await _uploadFile(path: xFile.path, fileName: xFile.name);
+      }
+    }
+  }
+
+  Future<void> pickVideo() async {
+    final picker = ImagePicker();
+    final xFile = await picker.pickVideo(source: ImageSource.gallery);
     if (xFile != null) {
       await _uploadFile(path: xFile.path, fileName: xFile.name);
     }

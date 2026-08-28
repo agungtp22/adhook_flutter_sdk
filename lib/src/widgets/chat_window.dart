@@ -662,6 +662,16 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
       return _buildImageContent(msg, fullUrl, isMe, style);
     }
 
+    final isVideo = typeLower == 'video' ||
+        lowerContent.contains(RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp|m4v)')) ||
+        lowerMediaUrl.contains(RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp|m4v)'));
+
+    if (isVideo) {
+      final videoPath = mediaUrl.isNotEmpty ? mediaUrl : msg.content;
+      final videoUrl = videoPath.startsWith('http') ? videoPath : '${_adhook.baseUrl}$videoPath';
+      return _buildVideoCard(videoUrl, isMe, style);
+    }
+
     if (typeLower == 'location' || lowerContent.startsWith('lat:')) return _buildLocationBubble(msg.content, isMe, style);
 
     final isAudio = typeLower == 'audio' ||
@@ -843,9 +853,38 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
     final url = filePath.startsWith('http') ? filePath : '${_adhook.baseUrl}$filePath';
     final lowerUrl = url.toLowerCase();
     if (lowerUrl.contains(RegExp(r'\.(jpg|jpeg|png|gif|webp)'))) return _buildImageContent(msg, url, isMe, style);
+    if (lowerUrl.contains(RegExp(r'\.(mp4|mov|avi|mkv|webm|3gp|m4v)'))) return _buildVideoCard(url, isMe, style);
     if (lowerUrl.contains('.pdf')) return _buildPdfCard(url, isMe, style);
     return _buildGenericFile(url, isMe, style);
   }
+
+  Widget _buildVideoCard(String url, bool isMe, AdhookChatStyle style) => InkWell(
+    onTap: () => _openUrl(url),
+    child: Container(
+      width: 200,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: isMe ? Colors.white24 : (style.brightness == Brightness.dark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+        borderRadius: BorderRadius.circular(12)
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.video_library_rounded, color: Color(0xFF6366F1), size: 32),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Video Media", style: style.applyFont(const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                Text(url.split('/').last, maxLines: 1, overflow: TextOverflow.ellipsis, style: style.applyFont(const TextStyle(fontSize: 10, color: Colors.grey))),
+              ],
+            ),
+          ),
+          const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF6366F1), size: 22),
+        ],
+      ),
+    ),
+  );
 
   Widget _buildPdfCard(String url, bool isMe, AdhookChatStyle style) => InkWell(onTap: () => _openUrl(url), child: Container(width: 180, padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: isMe ? Colors.white24 : (style.brightness == Brightness.dark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)), borderRadius: BorderRadius.circular(12)), child: Row(children: [const Icon(Icons.picture_as_pdf_rounded, color: Color(0xFFEF4444), size: 32), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text("PDF Document", style: style.applyFont(const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))), Text(url.split('/').last, maxLines: 1, overflow: TextOverflow.ellipsis, style: style.applyFont(const TextStyle(fontSize: 10, color: Colors.grey)))]))])));
 
