@@ -434,7 +434,29 @@ class AdhookChat {
       }
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
-      if (response.statusCode != 200) _handleApiError(response);
+      if (response.statusCode == 200) {
+        try {
+          final resJson = jsonDecode(response.body);
+          if (resJson is Map<String, dynamic>) {
+            final rawData = resJson['data'] ?? resJson['message'];
+            final Map<String, dynamic>? msgData = rawData is Map<String, dynamic>
+                ? rawData
+                : (rawData is Map ? Map<String, dynamic>.from(rawData) : null);
+
+            if (msgData != null) {
+              final msg = AdhookMessage.fromJson(msgData);
+              if (!_messages.any((m) => m.id == msg.id && msg.id.isNotEmpty)) {
+                _messages.add(msg);
+                _messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+                _messageController.add(currentMessages);
+                if (!kIsWeb) _localDb.saveMessage(msg);
+              }
+            }
+          }
+        } catch (_) {}
+      } else {
+        _handleApiError(response);
+      }
     } catch (e) {
       _errorController.add("Upload failed: $e");
     } finally {
