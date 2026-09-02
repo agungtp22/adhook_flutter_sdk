@@ -18,6 +18,7 @@ class AdhookChatStyle {
   final bool allowAttachment;
   final bool allowVoiceRecording;
   final bool allowLocationSharing;
+  final bool? enableVoiceCall; // null = use backend database config, true/false = manual override
 
   // Dark Mode Support
   final Brightness brightness;
@@ -38,6 +39,7 @@ class AdhookChatStyle {
     this.allowAttachment = true,
     this.allowVoiceRecording = true,
     this.allowLocationSharing = true,
+    this.enableVoiceCall,
     this.brightness = Brightness.light,
   });
 

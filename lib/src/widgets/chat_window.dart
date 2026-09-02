@@ -512,10 +512,18 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                   tooltip: 'Riwayat Chat',
                   onPressed: () => _showHistoryBottomSheet(context),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.phone_rounded, color: Colors.white),
-                  tooltip: 'Panggilan Suara CS',
-                  onPressed: () => _startVoiceCall(context),
+                StreamBuilder<bool>(
+                  stream: _adhook.enableVoiceCallStream,
+                  initialData: _adhook.enableVoiceCall,
+                  builder: (context, snapshot) {
+                    final isEnabled = style.enableVoiceCall ?? snapshot.data ?? false;
+                    if (!isEnabled) return const SizedBox.shrink();
+                    return IconButton(
+                      icon: const Icon(Icons.phone_rounded, color: Colors.white),
+                      tooltip: 'Panggilan Suara CS',
+                      onPressed: () => _startVoiceCall(context),
+                    );
+                  },
                 ),
                 const SizedBox(width: 4),
               ],
@@ -542,6 +550,16 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                           itemBuilder: (context, index) {
                             final msg = messages[index];
                             final isMe = msg.sender == AdhookSender.visitor;
+                            final typeUpper = msg.type.toUpperCase();
+                            final trimmedContent = msg.content.trim();
+                            final isInteractive = typeUpper == 'BUTTON' ||
+                                typeUpper == 'LIST' ||
+                                typeUpper == 'MENU' ||
+                                (trimmedContent.startsWith('{') &&
+                                    (trimmedContent.contains('"buttons"') ||
+                                        trimmedContent.contains('"rows"') ||
+                                        trimmedContent.contains('"sections"') ||
+                                        trimmedContent.contains('"items"')));
                             return GestureDetector(
                               onLongPress: () => setState(() => _replyingTo = msg),
                               child: Padding(
@@ -560,7 +578,10 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                                     Align(
                                       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                                       child: Container(
-                                        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
+                                        constraints: BoxConstraints(
+                                          minWidth: isInteractive ? (MediaQuery.of(context).size.width * 0.72) : 0,
+                                          maxWidth: MediaQuery.of(context).size.width * 0.82,
+                                        ),
                                         padding: style.bubblePadding,
                                         decoration: BoxDecoration(
                                           gradient: isMe 
@@ -644,8 +665,20 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
   }
 
   Widget _buildMessageBody(AdhookMessage msg, bool isMe, AdhookChatStyle style) {
-    if (msg.type == 'system') return Center(child: Padding(padding: const EdgeInsets.symmetric(vertical: 8.0), child: Text(msg.content, style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey))));
-    if (msg.type == 'BUTTON') return _buildButtonContent(msg, isMe, style);
+    if (msg.type.toLowerCase() == 'system') return Center(child: Padding(padding: const EdgeInsets.symmetric(vertical: 8.0), child: Text(msg.content, style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey))));
+
+    final typeUpper = msg.type.toUpperCase();
+    final trimmedContent = msg.content.trim();
+    final isInteractive = typeUpper == 'BUTTON' ||
+        typeUpper == 'LIST' ||
+        typeUpper == 'MENU' ||
+        (trimmedContent.startsWith('{') &&
+            (trimmedContent.contains('"buttons"') ||
+                trimmedContent.contains('"rows"') ||
+                trimmedContent.contains('"sections"') ||
+                trimmedContent.contains('"items"')));
+
+    if (isInteractive) return _buildButtonContent(msg, isMe, style);
 
     final typeLower = msg.type.toLowerCase();
     final mediaUrl = msg.mediaUrl ?? '';
@@ -692,6 +725,253 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
     return _buildTextContent(msg, isMe, style);
   }
 
+  Widget? _buildInteractiveIcon(String? iconData, Color defaultColor) {
+    if (iconData == null || iconData.trim().isEmpty) return null;
+    final trimmed = iconData.trim();
+
+    // 1. URL image
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: Image.network(
+          trimmed,
+          width: 18,
+          height: 18,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+        ),
+      );
+    }
+
+    // 2. Common material icon mappings
+    final iconMap = {
+      'lock': Icons.lock_outline_rounded,
+      'password': Icons.key_rounded,
+      'key': Icons.vpn_key_rounded,
+      'email': Icons.email_outlined,
+      'mail': Icons.mail_outline_rounded,
+      'phone': Icons.phone_outlined,
+      'call': Icons.call_outlined,
+      'user': Icons.person_outline_rounded,
+      'person': Icons.person_outline_rounded,
+      'help': Icons.help_outline_rounded,
+      'support': Icons.support_agent_rounded,
+      'chat': Icons.chat_bubble_outline_rounded,
+      'info': Icons.info_outline_rounded,
+      'shield': Icons.shield_outlined,
+      'security': Icons.security_rounded,
+      'card': Icons.credit_card_rounded,
+      'payment': Icons.payment_rounded,
+      'hospital': Icons.local_hospital_outlined,
+      'doctor': Icons.medical_services_outlined,
+      'claim': Icons.receipt_long_rounded,
+      'file': Icons.insert_drive_file_outlined,
+      'document': Icons.description_outlined,
+      'settings': Icons.settings_outlined,
+      'check': Icons.check_circle_outline_rounded,
+      'star': Icons.star_outline_rounded,
+      'list': Icons.list_rounded,
+      'menu': Icons.menu_rounded,
+    };
+
+    final iconKey = trimmed.toLowerCase();
+    if (iconMap.containsKey(iconKey)) {
+      return Icon(iconMap[iconKey], size: 18, color: defaultColor);
+    }
+
+    // 3. Emoji or character
+    return Text(trimmed, style: const TextStyle(fontSize: 16));
+  }
+
+  Widget _buildButtonContent(AdhookMessage msg, bool isMe, AdhookChatStyle style) {
+    Map<String, dynamic> buttonData = {};
+    try {
+      buttonData = jsonDecode(msg.content);
+    } catch (_) {}
+
+    final text = (buttonData['text'] ?? buttonData['body'] ?? buttonData['message'] ?? '').toString().trim();
+    final List<_InteractiveItem> items = [];
+
+    void extractItem(dynamic raw) {
+      if (raw == null) return;
+      if (raw is Map) {
+        final map = raw['reply'] is Map ? raw['reply'] : raw;
+        final title = (map['title'] ?? map['text'] ?? map['name'] ?? map['label'] ?? '').toString().trim();
+        if (title.isEmpty) return;
+        final desc = (map['description'] ?? map['desc'] ?? map['subtitle'] ?? map['subtext'])?.toString().trim();
+        final icon = (map['icon'] ?? map['icon_url'] ?? map['icon_name'] ?? map['emoji'])?.toString().trim();
+        final payload = (map['id'] ?? map['payload'] ?? map['value'] ?? title).toString().trim();
+        items.add(_InteractiveItem(
+          title: title,
+          description: desc != null && desc.isNotEmpty ? desc : null,
+          icon: icon != null && icon.isNotEmpty ? icon : null,
+          payload: payload.isNotEmpty ? payload : title,
+        ));
+      } else {
+        final t = raw.toString().trim();
+        if (t.isNotEmpty) {
+          items.add(_InteractiveItem(title: t, payload: t));
+        }
+      }
+    }
+
+    if (buttonData['buttons'] is List) {
+      for (var b in buttonData['buttons']) {
+        extractItem(b);
+      }
+    }
+
+    if (items.isEmpty && buttonData['sections'] is List) {
+      for (var sec in buttonData['sections']) {
+        if (sec is Map && sec['rows'] is List) {
+          for (var r in sec['rows']) {
+            extractItem(r);
+          }
+        }
+      }
+    }
+
+    if (items.isEmpty && buttonData['rows'] is List) {
+      for (var r in buttonData['rows']) {
+        extractItem(r);
+      }
+    }
+
+    if (items.isEmpty && buttonData['items'] is List) {
+      for (var item in buttonData['items']) {
+        extractItem(item);
+      }
+    }
+
+    if (items.isEmpty && buttonData['options'] is List) {
+      for (var opt in buttonData['options']) {
+        extractItem(opt);
+      }
+    }
+
+    final isList = msg.type.toUpperCase() == 'LIST' ||
+        buttonData['sections'] != null ||
+        buttonData['rows'] != null ||
+        items.any((i) => i.description != null);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (text.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12.0),
+            child: Text(
+              text,
+              style: style.applyFont(isMe ? style.visitorTextStyle : style.agentTextStyle),
+            ),
+          ),
+        if (items.isNotEmpty)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: items.map((item) {
+              final iconWidget = _buildInteractiveIcon(
+                item.icon,
+                isList
+                    ? (style.brightness == Brightness.dark ? Colors.white70 : Colors.black87)
+                    : Colors.white,
+              );
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(style.buttonRadius + 4),
+                    onTap: () {
+                      _adhook.sendMessage(item.title);
+                    },
+                    child: Ink(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        gradient: isList
+                            ? null
+                            : LinearGradient(
+                                colors: [style.primaryColor, style.primaryColor.withValues(alpha: 0.9)],
+                              ),
+                        color: isList
+                            ? (style.brightness == Brightness.dark ? const Color(0xFF2A2A2A) : const Color(0xFFF3F4F6))
+                            : null,
+                        borderRadius: BorderRadius.circular(style.buttonRadius + 4),
+                        border: isList
+                            ? Border.all(
+                                color: style.brightness == Brightness.dark ? Colors.white12 : Colors.black12,
+                                width: 1,
+                              )
+                            : null,
+                        boxShadow: [
+                          BoxShadow(
+                            color: (isList ? Colors.black : style.primaryColor).withValues(alpha: isList ? 0.04 : 0.25),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          )
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          if (iconWidget != null) ...[
+                            iconWidget,
+                            const SizedBox(width: 10),
+                          ],
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.title,
+                                  style: style.applyFont(TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: isList
+                                        ? (style.brightness == Brightness.dark ? Colors.white : Colors.black87)
+                                        : Colors.white,
+                                  )),
+                                ),
+                                if (item.description != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    item.description!,
+                                    style: style.applyFont(TextStyle(
+                                      fontSize: 11,
+                                      color: isList
+                                          ? (style.brightness == Brightness.dark ? Colors.white60 : Colors.black54)
+                                          : Colors.white70,
+                                    )),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (isList)
+                            Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              size: 12,
+                              color: style.brightness == Brightness.dark ? Colors.white38 : Colors.black38,
+                            )
+                          else
+                            const Icon(
+                              Icons.touch_app_outlined,
+                              size: 14,
+                              color: Colors.white70,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
   Widget _buildImageContent(AdhookMessage msg, String url, bool isMe, AdhookChatStyle style) {
     final hasCaption = msg.content.isNotEmpty && msg.content != url && msg.content != msg.mediaUrl;
     return Column(
@@ -727,61 +1007,6 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
         if (hasCaption) ...[
           const SizedBox(height: 6),
           Text(msg.content, style: style.applyFont(isMe ? style.visitorTextStyle : style.agentTextStyle)),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildButtonContent(AdhookMessage msg, bool isMe, AdhookChatStyle style) {
-    Map<String, dynamic> buttonData = {};
-    try {
-      buttonData = jsonDecode(msg.content);
-    } catch (_) {}
-
-    final text = buttonData['text'] ?? '';
-    final buttons = List<String>.from(buttonData['buttons'] ?? []);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(text, style: style.applyFont(isMe ? style.visitorTextStyle : style.agentTextStyle)),
-        if (buttons.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: buttons.map((btnText) {
-              return Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(style.buttonRadius + 4),
-                  onTap: () {
-                    _adhook.sendMessage(btnText);
-                  },
-                  child: Ink(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [style.primaryColor, style.primaryColor.withValues(alpha: 0.9)],
-                      ),
-                      borderRadius: BorderRadius.circular(style.buttonRadius + 4),
-                      boxShadow: [
-                        BoxShadow(
-                          color: style.primaryColor.withValues(alpha: 0.25),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        )
-                      ]
-                    ),
-                    child: Text(
-                      btnText, 
-                      style: style.applyFont(const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white))
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
         ],
       ],
     );
@@ -1706,4 +1931,18 @@ class _AudioBubbleState extends State<AudioBubble> {
   Future<void> _initPlayer() async { try { await _player.setUrl(widget.url); _player.durationStream.listen((d) => setState(() => _duration = d ?? Duration.zero)); _player.positionStream.listen((p) => setState(() => _position = p)); _player.playerStateStream.listen((s) => setState(() => _isPlaying = s.playing)); } catch (e) { debugPrint("Player error: $e"); } }
   @override void dispose() { _player.dispose(); super.dispose(); }
   @override Widget build(BuildContext context) { return Container(width: 200, padding: const EdgeInsets.symmetric(vertical: 4), child: Row(children: [IconButton(icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow, color: widget.isMe ? Colors.white : Colors.blue), onPressed: () => _isPlaying ? _player.pause() : _player.play()), Expanded(child: Slider(value: _position.inSeconds.toDouble(), max: _duration.inSeconds.toDouble() > 0 ? _duration.inSeconds.toDouble() : 1.0, activeColor: widget.isMe ? Colors.white : Colors.blue, inactiveColor: widget.isMe ? Colors.white24 : Colors.black12, onChanged: (v) => _player.seek(Duration(seconds: v.toInt()))))])); }
+}
+
+class _InteractiveItem {
+  final String title;
+  final String? description;
+  final String? icon;
+  final String payload;
+
+  _InteractiveItem({
+    required this.title,
+    this.description,
+    this.icon,
+    required this.payload,
+  });
 }

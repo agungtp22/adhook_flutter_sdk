@@ -33,8 +33,10 @@ class AdhookChat {
   
   WebSocketChannel? _channel;
   bool _isConnected = false;
+  bool _isConnecting = false;
   int _reconnectAttempts = 0;
   Timer? _reconnectTimer;
+  Timer? _pingTimer;
   
   final AdhookLocalDb _localDb = AdhookLocalDb();
   
@@ -59,6 +61,10 @@ class AdhookChat {
   bool get isUploading => _isUploading;
   final _uploadProgressController = StreamController<bool>.broadcast();
   Stream<bool> get uploadStatusStream => _uploadProgressController.stream;
+  bool _enableVoiceCall = false;
+  bool get enableVoiceCall => _enableVoiceCall;
+  final _configController = StreamController<bool>.broadcast();
+  Stream<bool> get enableVoiceCallStream => _configController.stream;
 
   List<AdhookMessage> get currentMessages => List.unmodifiable(_messages);
   String? get baseUrl => _baseUrl;
@@ -96,6 +102,19 @@ class AdhookChat {
   Future<void> _loadSession() async {
     final prefs = await SharedPreferences.getInstance();
     _sessionId = prefs.getString('adhook_session_id');
+    _enableVoiceCall = prefs.getBool('adhook_enable_voice_call') ?? false;
+    _configController.add(_enableVoiceCall);
+  }
+
+  void _applyConfig(dynamic cfg) {
+    if (cfg is Map) {
+      if (cfg.containsKey('enable_voice_call')) {
+        _enableVoiceCall = cfg['enable_voice_call'] == true;
+        SharedPreferences.getInstance().then((p) => p.setBool('adhook_enable_voice_call', _enableVoiceCall));
+        _configController.add(_enableVoiceCall);
+        _log("Applied widget config: enable_voice_call=$_enableVoiceCall");
+      }
+    }
   }
 
   Future<void> _saveSession(String sessionId) async {
@@ -109,6 +128,17 @@ class AdhookChat {
       _errorController.add("SDK not initialized. Call init() first.");
       return;
     }
+
+    if (_isConnected && _channel != null) {
+      _log("WebSocket already connected, skipping connect.");
+      return;
+    }
+
+    if (_isConnecting) {
+      _log("WebSocket connection already in progress, skipping duplicate connect.");
+      return;
+    }
+    _isConnecting = true;
 
     _log("Connecting to WebSocket...");
     _statusController.add(AdhookConnectionStatus.connecting);
@@ -133,16 +163,23 @@ class AdhookChat {
 
       final wsUrl = '${_baseUrl!.replaceFirst('http', 'ws')}/ws/widget/$_sessionId';
       _log("Handshaking with URL: $wsUrl");
-      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+
+      // Close previous channel cleanly before opening new one
+      try {
+        _channel?.sink.close();
+      } catch (_) {}
+
+      final channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      _channel = channel;
       
       // Perform handshake
-      _channel!.sink.add(jsonEncode({
+      channel.sink.add(jsonEncode({
         "type": "widget",
         "session_id": _sessionId,
         "widget_key": _widgetKey
       }));
 
-      _channel!.stream.listen(
+      channel.stream.listen(
         (data) {
           final decoded = jsonDecode(data);
           _log("Received: $data");
@@ -151,8 +188,19 @@ class AdhookChat {
 
           if (eventType == 'connected') {
             _isConnected = true;
+            _isConnecting = false;
             _reconnectAttempts = 0;
             _statusController.add(AdhookConnectionStatus.connected);
+
+            // Start keepalive ping every 25 seconds to prevent proxy/APIM idle disconnects
+            _pingTimer?.cancel();
+            _pingTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+              if (_isConnected && _channel != null) {
+                try {
+                  _channel!.sink.add(jsonEncode({"action": "ping"}));
+                } catch (_) {}
+              }
+            });
           }
 
           if (eventType == 'new_message' || eventType == 'message') {
@@ -222,18 +270,28 @@ class AdhookChat {
         },
         onError: (error) {
           _log("WebSocket error: $error");
+          _isConnected = false;
+          _isConnecting = false;
+          _pingTimer?.cancel();
           _statusController.add(AdhookConnectionStatus.disconnected);
           _attemptReconnect();
         },
         onDone: () {
           _log("WebSocket closed");
+          _isConnected = false;
+          _isConnecting = false;
+          _pingTimer?.cancel();
           _statusController.add(AdhookConnectionStatus.disconnected);
           _attemptReconnect();
         },
       );
     } catch (e) {
+      _isConnected = false;
+      _isConnecting = false;
+      _pingTimer?.cancel();
       _statusController.add(AdhookConnectionStatus.disconnected);
       _errorController.add(e.toString());
+      _attemptReconnect();
     }
   }
 
@@ -241,7 +299,21 @@ class AdhookChat {
     if (_reconnectAttempts > 5) return;
     _reconnectTimer?.cancel();
     _reconnectAttempts++;
-    _reconnectTimer = Timer(Duration(seconds: _reconnectAttempts * 2), () => connect());
+    final delay = Duration(seconds: (_reconnectAttempts * 2).clamp(2, 10));
+    _log("Scheduling reconnect attempt $_reconnectAttempts in ${delay.inSeconds}s");
+    _reconnectTimer = Timer(delay, () => connect());
+  }
+
+  void disconnect() {
+    _isConnected = false;
+    _isConnecting = false;
+    _pingTimer?.cancel();
+    _reconnectTimer?.cancel();
+    try {
+      _channel?.sink.close();
+    } catch (_) {}
+    _channel = null;
+    _statusController.add(AdhookConnectionStatus.disconnected);
   }
 
   Future<void> _fetchHistory() async {
@@ -253,6 +325,9 @@ class AdhookChat {
 
       if (response.statusCode == 200) {
         final dynamic decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded['config'] != null) {
+          _applyConfig(decoded['config']);
+        }
         List<dynamic> items = [];
         if (decoded is List) {
           items = decoded;
@@ -307,6 +382,9 @@ class AdhookChat {
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
         await _saveSession(data['session_id']);
+        if (data['config'] != null) {
+          _applyConfig(data['config']);
+        }
       } else {
         _handleApiError(response);
       }
