@@ -884,7 +884,13 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                   child: InkWell(
                     borderRadius: BorderRadius.circular(style.buttonRadius + 4),
                     onTap: () {
-                      _adhook.sendMessage(item.title);
+                      if (item.payload == 'ACTION_CALL_AGENT' ||
+                          item.title.toLowerCase().contains('telepon agen') ||
+                          item.title.toLowerCase().contains('telepon cs')) {
+                        _startVoiceCall(context);
+                      } else {
+                        _adhook.sendMessage(item.title);
+                      }
                     },
                     child: Ink(
                       width: double.infinity,
