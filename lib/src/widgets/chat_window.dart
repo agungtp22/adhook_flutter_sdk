@@ -32,7 +32,7 @@ class AdhookChatWindow extends StatefulWidget {
   State<AdhookChatWindow> createState() => _AdhookChatWindowState();
 }
 
-class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProviderStateMixin {
+class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProviderStateMixin, WidgetsBindingObserver {
   final TextEditingController _controller = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -59,10 +59,12 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _showForm = !_adhook.hasUserInfo;
     if (!_showForm) {
       _adhook.connect();
     }
+    _adhook.startPolling();
     
     // Listen to errors from SDK
     _adhook.errorStream.listen((error) {
@@ -91,7 +93,19 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _adhook.syncMessages();
+      if (!_adhook.isConnected) {
+        _adhook.connect();
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _adhook.stopPolling();
     _typingTimer?.cancel();
     _amplitudeSubscription?.cancel();
     _controller.dispose();

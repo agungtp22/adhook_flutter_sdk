@@ -37,6 +37,8 @@ class AdhookChat {
   int _reconnectAttempts = 0;
   Timer? _reconnectTimer;
   Timer? _pingTimer;
+  Timer? _pollTimer;
+  bool _isSyncing = false;
   
   final AdhookLocalDb _localDb = AdhookLocalDb();
   
@@ -66,6 +68,7 @@ class AdhookChat {
   final _configController = StreamController<bool>.broadcast();
   Stream<bool> get enableVoiceCallStream => _configController.stream;
 
+  bool get isConnected => _isConnected;
   List<AdhookMessage> get currentMessages => List.unmodifiable(_messages);
   String? get baseUrl => _baseUrl;
   bool get hasUserInfo => _userName != null && _userName!.isNotEmpty;
@@ -160,6 +163,7 @@ class AdhookChat {
       } else {
         await _fetchHistory();
       }
+      _startPolling();
 
       final wsUrl = '${_baseUrl!.replaceFirst('http', 'ws')}/ws/widget/$_sessionId';
       _log("Handshaking with URL: $wsUrl");
@@ -201,6 +205,8 @@ class AdhookChat {
                 } catch (_) {}
               }
             });
+
+            _startPolling();
           }
 
           if (eventType == 'new_message' || eventType == 'message') {
@@ -296,7 +302,6 @@ class AdhookChat {
   }
 
   void _attemptReconnect() {
-    if (_reconnectAttempts > 5) return;
     _reconnectTimer?.cancel();
     _reconnectAttempts++;
     final delay = Duration(seconds: (_reconnectAttempts * 2).clamp(2, 10));
@@ -309,11 +314,74 @@ class AdhookChat {
     _isConnecting = false;
     _pingTimer?.cancel();
     _reconnectTimer?.cancel();
+    _pollTimer?.cancel();
     try {
       _channel?.sink.close();
     } catch (_) {}
     _channel = null;
     _statusController.add(AdhookConnectionStatus.disconnected);
+  }
+
+  void startPolling() => _startPolling();
+  void stopPolling() => _pollTimer?.cancel();
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _syncLatestMessages();
+    });
+  }
+
+  /// Sync messages manually or upon app lifecycle resume
+  Future<void> syncMessages() async {
+    await _syncLatestMessages();
+  }
+
+  Future<void> _syncLatestMessages() async {
+    if (_sessionId == null || _baseUrl == null || _isSyncing) return;
+    _isSyncing = true;
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/widget/messages/$_sessionId'),
+        headers: {'Authorization': 'Bearer $_apiKey'},
+      );
+
+      if (response.statusCode == 200) {
+        final dynamic decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded['config'] != null) {
+          _applyConfig(decoded['config']);
+        }
+        List<dynamic> items = [];
+        if (decoded is List) {
+          items = decoded;
+        } else if (decoded is Map && decoded['data'] is List) {
+          items = decoded['data'];
+        } else if (decoded is Map && decoded['messages'] is List) {
+          items = decoded['messages'];
+        }
+
+        bool hasNew = false;
+        for (var item in items) {
+          if (item is Map) {
+            final msg = AdhookMessage.fromJson(Map<String, dynamic>.from(item));
+            if (msg.id.isNotEmpty && !_messages.any((m) => m.id == msg.id)) {
+              _messages.add(msg);
+              if (!kIsWeb) await _localDb.saveMessage(msg);
+              hasNew = true;
+            }
+          }
+        }
+
+        if (hasNew) {
+          _messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+          _messageController.add(currentMessages);
+        }
+      }
+    } catch (_) {
+      // Silent error during periodic background poll
+    } finally {
+      _isSyncing = false;
+    }
   }
 
   Future<void> _fetchHistory() async {
