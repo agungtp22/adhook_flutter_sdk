@@ -1606,6 +1606,7 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
   Timer? _timer;
   String? _roomName;
   String? _egressId;
+  String? _errorMessage;
   StreamSubscription? _callSub;
   Room? _livekitRoom;
   EventsListener<RoomEvent>? _roomListener;
@@ -1626,6 +1627,10 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
   }
 
   void _initiateCall() async {
+    setState(() {
+      _isConnecting = true;
+      _errorMessage = null;
+    });
     try {
       final res = await widget.adhook.initiateVoiceCall();
       _roomName = res['room_name'];
@@ -1662,14 +1667,24 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
         setState(() {
           _isConnecting = false;
           _isConnected = true;
+          _errorMessage = null;
         });
         _startTimer();
       }
     } catch (e) {
       if (mounted) {
+        final errorText = e.toString().replaceFirst('Exception: ', '');
         setState(() {
           _isConnecting = false;
+          _errorMessage = errorText;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorText),
+            backgroundColor: Colors.red[700],
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     }
   }
@@ -1800,9 +1815,34 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
           Text(
             _isConnecting
                 ? "Menghubungkan ke CS AdMedika..."
-                : (_isConnected ? "🟢 Terhubung ke CS Agent" : "❌ Panggilan Berakhir"),
-            style: TextStyle(fontSize: 13, color: _isConnected ? const Color(0xFF10B981) : Colors.grey[600], fontWeight: FontWeight.w600),
+                : (_isConnected 
+                    ? "🟢 Terhubung ke CS Agent" 
+                    : (_errorMessage != null 
+                        ? "⚠️ $_errorMessage" 
+                        : "❌ Panggilan Berakhir")),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13, 
+              color: _isConnected 
+                  ? const Color(0xFF10B981) 
+                  : (_errorMessage != null ? const Color(0xFFEF4444) : Colors.grey[600]), 
+              fontWeight: FontWeight.w600,
+            ),
           ),
+          if (_errorMessage != null && !_isConnecting && !_isConnected) ...[
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _initiateCall,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text("Coba Hubungi Lagi"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              ),
+            ),
+          ],
           if (_isConnected) ...[
             const SizedBox(height: 16),
             Container(
