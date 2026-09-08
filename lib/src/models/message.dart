@@ -45,6 +45,13 @@ class AdhookMessage {
     this.replyToSender,
   });
 
+  bool get isSystem =>
+      sender == AdhookSender.system ||
+      type.toLowerCase() == 'system' ||
+      content.contains('meneruskan obrolan') ||
+      content.contains('telah dialihkan ke') ||
+      content.contains('sedang dialihkan ke');
+
   static DateTime parseCreatedAt(dynamic raw) {
     if (raw == null) return DateTime.now();
     if (raw is DateTime) return raw;

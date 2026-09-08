@@ -76,6 +76,11 @@ class AdhookChat {
   final _closedController = StreamController<bool>.broadcast();
   Stream<bool> get conversationClosedStream => _closedController.stream;
 
+  String? _assignedAgentName;
+  String? get assignedAgentName => _assignedAgentName;
+  final _assignedAgentController = StreamController<String?>.broadcast();
+  Stream<String?> get assignedAgentStream => _assignedAgentController.stream;
+
   bool get isConnected => _isConnected;
   bool get isConversationClosed => _conversationClosed;
   String? get visitorId => _visitorId;
@@ -268,12 +273,17 @@ class AdhookChat {
           }
 
           if (eventType == 'agent_assigned' || eventType == 'session_assigned') {
+            final rawData = decoded['data'] is Map ? decoded['data'] : decoded;
+            final agentName = (rawData['agent_name'] ?? decoded['agent_name'] ?? 'Support Agent').toString();
+            _assignedAgentName = agentName;
+            _assignedAgentController.add(agentName);
+
             final systemMsg = AdhookMessage(
               id: 'sys-${DateTime.now().millisecondsSinceEpoch}',
-              content: 'Sesi dialihkan ke Agen: ${decoded['agent_name'] ?? 'Support Agent'}',
-              sender: AdhookSender.agent,
+              content: 'Obrolan Anda telah dialihkan ke $agentName',
+              sender: AdhookSender.system,
               createdAt: DateTime.now(),
-              type: 'TEXT'
+              type: 'system'
             );
             _messages.add(systemMsg);
             _messageController.add(currentMessages);

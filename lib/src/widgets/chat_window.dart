@@ -54,10 +54,12 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
   final Map<String, PreviewData> _previewDataCache = {};
 
   bool _hasShownRating = false;
+  bool _showScrollToBottom = false;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addObserver(this);
     _showForm = !_adhook.hasUserInfo;
     if (!_showForm) {
@@ -109,6 +111,7 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _scrollController.removeListener(_onScroll);
     _adhook.stopPolling();
     _typingTimer?.cancel();
     _amplitudeSubscription?.cancel();
@@ -119,6 +122,16 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
     _scrollController.dispose();
     _audioRecorder.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.offset;
+    final isFarFromBottom = (maxScroll - currentScroll) > 160;
+    if (isFarFromBottom != _showScrollToBottom) {
+      setState(() => _showScrollToBottom = isFarFromBottom);
+    }
   }
 
   void _showRatingDialog() {
@@ -434,14 +447,16 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
     _typingTimer = Timer(const Duration(seconds: 3), () => _adhook.sendTypingStatus(false));
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent, 
-          duration: const Duration(milliseconds: 400), 
-          curve: Curves.fastOutSlowIn
-        );
+        if (force || !_showScrollToBottom) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent, 
+            duration: const Duration(milliseconds: 300), 
+            curve: Curves.easeOutCubic
+          );
+        }
       }
     });
   }
@@ -480,49 +495,81 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
           ? AppBar(
               elevation: 2,
               shadowColor: Colors.black26,
-              leadingWidth: widget.leading != null ? 70 : null,
               leading: widget.leading != null ? Padding(padding: const EdgeInsets.only(left: 12), child: Center(child: widget.leading)) : null,
-              title: Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: Colors.white24,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white38, width: 1.5),
-                    ),
-                    child: const Icon(Icons.support_agent_rounded, color: Colors.white, size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start, 
-                      children: [
-                        Text(widget.title, style: style.applyFont(style.appBarTitleStyle ?? const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white))),
-                        StreamBuilder<bool>(
-                          stream: _adhook.agentTypingStatus,
-                          initialData: false,
-                          builder: (context, snapshot) {
-                            if (snapshot.data == true) {
-                              return const Text(
-                                "Agent is typing...", 
-                                style: TextStyle(fontSize: 10, color: Colors.white70, fontStyle: FontStyle.italic, fontWeight: FontWeight.w500)
-                              );
-                            }
-                            return Row(
-                              children: [
-                                Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle)),
-                                const SizedBox(width: 4),
-                                const Text("Always Active", style: TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.w500)),
-                              ],
-                            );
-                          },
+              title: StreamBuilder<String?>(
+                stream: _adhook.assignedAgentStream,
+                initialData: _adhook.assignedAgentName,
+                builder: (context, agentSnap) {
+                  final activeAgent = agentSnap.data ?? _adhook.assignedAgentName;
+                  final displayTitle = (activeAgent != null && activeAgent.isNotEmpty)
+                      ? activeAgent
+                      : widget.title;
+                  return Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white38, width: 1.5),
                         ),
-                      ]
-                    ),
-                  ),
-                ],
+                        child: Icon(
+                          activeAgent != null ? Icons.person_rounded : Icons.support_agent_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              displayTitle,
+                              style: style.applyFont(
+                                style.appBarTitleStyle ??
+                                    const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            StreamBuilder<bool>(
+                              stream: _adhook.agentTypingStatus,
+                              initialData: false,
+                              builder: (context, snapshot) {
+                                if (snapshot.data == true) {
+                                  return const Text(
+                                    "Agent is typing...",
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.white70,
+                                      fontStyle: FontStyle.italic,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  );
+                                }
+                                return Row(
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      activeAgent != null ? "Online" : "Always Active",
+                                      style: const TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.w500),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
               actions: [
                 IconButton(
@@ -555,103 +602,164 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                 children: [
                   _buildConnectionStatus(style),
                   Expanded(
-                    child: StreamBuilder<List<AdhookMessage>>(
-                      stream: _adhook.messageHistory,
-                      initialData: _adhook.currentMessages,
-                      builder: (context, snapshot) {
-                        final messages = snapshot.data ?? [];
-                        _scrollToBottom();
-                        return ListView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                          itemCount: messages.length,
-                          itemBuilder: (context, index) {
-                            final msg = messages[index];
-                            final isMe = msg.sender == AdhookSender.visitor;
-                            final typeUpper = msg.type.toUpperCase();
-                            final trimmedContent = msg.content.trim();
-                            final isInteractive = typeUpper == 'BUTTON' ||
-                                typeUpper == 'LIST' ||
-                                typeUpper == 'MENU' ||
-                                (trimmedContent.startsWith('{') &&
-                                    (trimmedContent.contains('"buttons"') ||
-                                        trimmedContent.contains('"rows"') ||
-                                        trimmedContent.contains('"sections"') ||
-                                        trimmedContent.contains('"items"')));
-                            return GestureDetector(
-                              onLongPress: () => setState(() => _replyingTo = msg),
-                              child: Padding(
-                                padding: const EdgeInsets.only(bottom: 14),
-                                child: Column(
-                                  crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                  children: [
-                                    if (!isMe && msg.senderName != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(left: 6, bottom: 4), 
-                                        child: Text(
-                                          msg.senderName!, 
-                                          style: style.applyFont(const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey))
-                                        )
-                                      ),
-                                    Align(
-                                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                                      child: Container(
-                                        constraints: BoxConstraints(
-                                          minWidth: isInteractive ? (MediaQuery.of(context).size.width * 0.72) : 0,
-                                          maxWidth: MediaQuery.of(context).size.width * 0.82,
-                                        ),
-                                        padding: style.bubblePadding,
-                                        decoration: BoxDecoration(
-                                          gradient: isMe 
-                                              ? LinearGradient(
-                                                  colors: [style.visitorBubbleColor, style.visitorBubbleColor.withValues(alpha: 0.85)],
-                                                  begin: Alignment.topLeft,
-                                                  end: Alignment.bottomRight,
-                                                )
-                                              : null,
-                                          color: isMe ? null : style.agentBubbleColor,
-                                          borderRadius: BorderRadius.only(
-                                            topLeft: const Radius.circular(16),
-                                            topRight: const Radius.circular(16),
-                                            bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(2),
-                                            bottomRight: isMe ? const Radius.circular(2) : const Radius.circular(16),
+                    child: Stack(
+                      children: [
+                        StreamBuilder<List<AdhookMessage>>(
+                          stream: _adhook.messageHistory,
+                          initialData: _adhook.currentMessages,
+                          builder: (context, snapshot) {
+                            final messages = snapshot.data ?? [];
+                            _scrollToBottom();
+                            return ListView.builder(
+                              controller: _scrollController,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                              itemCount: messages.length,
+                              itemBuilder: (context, index) {
+                                final msg = messages[index];
+                                // Render system transition notices centered without bubble (Biznet GIO style)
+                                if (msg.isSystem) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
+                                    child: Center(
+                                      child: Text(
+                                        msg.content,
+                                        textAlign: TextAlign.center,
+                                        style: style.applyFont(
+                                          TextStyle(
+                                            fontSize: 12.5,
+                                            color: style.brightness == Brightness.dark ? Colors.white60 : const Color(0xFF757575),
+                                            fontWeight: FontWeight.w500,
+                                            height: 1.4,
                                           ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withValues(alpha: style.brightness == Brightness.dark ? 0.2 : 0.04), 
-                                              blurRadius: 6, 
-                                              offset: const Offset(0, 3)
-                                            )
-                                          ]
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            if (msg.replyToContent != null) _buildReplyQuote(msg, isMe, style),
-                                            _buildMessageBody(msg, isMe, style),
-                                            const SizedBox(height: 6),
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              mainAxisAlignment: MainAxisAlignment.end,
-                                              children: [
-                                                Text(_formatTime(msg.createdAt), style: style.applyFont(TextStyle(fontSize: 9, color: isMe ? Colors.white70 : Colors.grey))),
-                                                if (isMe) ...[
-                                                  const SizedBox(width: 4),
-                                                  _buildDeliveryIcon(msg),
-                                                ],
-                                              ],
-                                            ),
-                                          ],
                                         ),
                                       ),
                                     ),
-                                  ],
-                                ),
-                              ),
+                                  );
+                                }
+
+                                final isMe = msg.sender == AdhookSender.visitor;
+                                final typeUpper = msg.type.toUpperCase();
+                                final trimmedContent = msg.content.trim();
+                                final isInteractive = typeUpper == 'BUTTON' ||
+                                    typeUpper == 'LIST' ||
+                                    typeUpper == 'MENU' ||
+                                    (trimmedContent.startsWith('{') &&
+                                        (trimmedContent.contains('"buttons"') ||
+                                            trimmedContent.contains('"rows"') ||
+                                            trimmedContent.contains('"sections"') ||
+                                            trimmedContent.contains('"items"')));
+                                return GestureDetector(
+                                  onLongPress: () => setState(() => _replyingTo = msg),
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(bottom: 14),
+                                    child: Column(
+                                      crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                      children: [
+                                        if (!isMe)
+                                          Padding(
+                                            padding: const EdgeInsets.only(left: 6, bottom: 4), 
+                                            child: Text(
+                                              msg.senderName ?? _adhook.assignedAgentName ?? 'AdMedika Support', 
+                                              style: style.applyFont(const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey))
+                                            )
+                                          ),
+                                        Align(
+                                          alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                                          child: Container(
+                                            constraints: BoxConstraints(
+                                              minWidth: isInteractive ? (MediaQuery.of(context).size.width * 0.72) : 0,
+                                              maxWidth: MediaQuery.of(context).size.width * 0.82,
+                                            ),
+                                            padding: style.bubblePadding,
+                                            decoration: BoxDecoration(
+                                              gradient: isMe 
+                                                  ? LinearGradient(
+                                                      colors: [style.visitorBubbleColor, style.visitorBubbleColor.withValues(alpha: 0.85)],
+                                                      begin: Alignment.topLeft,
+                                                      end: Alignment.bottomRight,
+                                                    )
+                                                  : null,
+                                              color: isMe ? null : style.agentBubbleColor,
+                                              borderRadius: BorderRadius.only(
+                                                topLeft: const Radius.circular(16),
+                                                topRight: const Radius.circular(16),
+                                                bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(2),
+                                                bottomRight: isMe ? const Radius.circular(2) : const Radius.circular(16),
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black.withValues(alpha: style.brightness == Brightness.dark ? 0.2 : 0.04), 
+                                                  blurRadius: 6, 
+                                                  offset: const Offset(0, 3)
+                                                )
+                                              ]
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                if (msg.replyToContent != null) _buildReplyQuote(msg, isMe, style),
+                                                _buildMessageBody(msg, isMe, style),
+                                                const SizedBox(height: 6),
+                                                Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  mainAxisAlignment: MainAxisAlignment.end,
+                                                  children: [
+                                                    Text(_formatTime(msg.createdAt), style: style.applyFont(TextStyle(fontSize: 9, color: isMe ? Colors.white70 : Colors.grey))),
+                                                    if (isMe) ...[
+                                                      const SizedBox(width: 4),
+                                                      _buildDeliveryIcon(msg),
+                                                    ],
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
                             );
                           },
-                        );
-                      },
+                        ),
+                        if (_showScrollToBottom)
+                          Positioned(
+                            right: 16,
+                            bottom: 12,
+                            child: GestureDetector(
+                              onTap: () {
+                                if (_scrollController.hasClients) {
+                                  _scrollController.animateTo(
+                                    _scrollController.position.maxScrollExtent,
+                                    duration: const Duration(milliseconds: 300),
+                                    curve: Curves.easeOutCubic,
+                                  );
+                                }
+                              },
+                              child: Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: style.brightness == Brightness.dark ? const Color(0xFF2A2A2A) : Colors.white,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.15),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  color: style.brightness == Brightness.dark ? Colors.white70 : const Color(0xFF555555),
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   _buildUploadProgressIndicator(style),
