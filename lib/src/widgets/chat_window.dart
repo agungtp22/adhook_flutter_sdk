@@ -1636,7 +1636,10 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
       _roomName = res['room_name'];
       _egressId = res['egress_id'];
       final token = res['token'];
-      final wsUrl = res['ws_url'] ?? 'wss://livekit.soluska.id';
+      final wsUrl = res['ws_url'];
+      if (wsUrl == null || wsUrl.toString().isEmpty) {
+        throw Exception('Server tidak menyediakan URL koneksi panggilan suara.');
+      }
 
       if (token != null && token.toString().isNotEmpty) {
         try {
