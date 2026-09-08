@@ -1,5 +1,11 @@
 enum AdhookSender { visitor, agent, system }
 
+/// Status pengiriman pesan (gaya WhatsApp):
+/// - [pending] pesan masih di antrean, belum sampai server
+/// - [sent] sudah diterima & disimpan server (✓)
+/// - [read] sudah dibaca agent (✓✓ biru)
+enum AdhookDeliveryStatus { pending, sent, read }
+
 class AdhookMessage {
   final String id;
   final String content;
@@ -12,7 +18,10 @@ class AdhookMessage {
   final String? mediaUrl;
   final String? mimeType;
   bool isRead;
-  
+
+  /// Status delivery lokal (untuk pesan outgoing & read-receipt).
+  AdhookDeliveryStatus deliveryStatus;
+
   // Fields for Reply/Quote
   final String? replyToId;
   final String? replyToContent;
@@ -30,6 +39,7 @@ class AdhookMessage {
     this.mediaUrl,
     this.mimeType,
     this.isRead = false,
+    this.deliveryStatus = AdhookDeliveryStatus.sent,
     this.replyToId,
     this.replyToContent,
     this.replyToSender,
@@ -64,6 +74,8 @@ class AdhookMessage {
         ? AdhookSender.system
         : (isVisitor ? AdhookSender.visitor : AdhookSender.agent);
 
+    final bool read = json['is_read'] == true || json['read'] == true;
+
     return AdhookMessage(
       id: (json['id'] ?? '').toString(),
       content: json['content'] ?? json['message_text'] ?? '',
@@ -75,7 +87,8 @@ class AdhookMessage {
       mimeType: json['mime_type'] ?? json['file_name'],
       createdAt: parseCreatedAt(json['created_at']),
       type: messageType,
-      isRead: json['is_read'] ?? false,
+      isRead: read,
+      deliveryStatus: read ? AdhookDeliveryStatus.read : AdhookDeliveryStatus.sent,
       replyToId: json['reply_to_id']?.toString(),
       replyToContent: json['reply_to_content'],
       replyToSender: json['reply_to_sender'],

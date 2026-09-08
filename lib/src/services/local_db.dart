@@ -112,6 +112,11 @@ class AdhookLocalDb {
     });
   }
 
+  Future<void> deleteMessage(String id) async {
+    final db = await database;
+    await db.delete('messages', where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<void> clearAll() async {
     final db = await database;
     await db.delete('messages');

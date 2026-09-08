@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -79,8 +78,13 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
         );
       }
     });
-    
+
+    _adhook.conversationClosedStream.listen((_) {
+      if (mounted) setState(() {});
+    });
+
     _adhook.messageHistory.listen((messages) {
+       if (_adhook.isConversationClosed) return;
        if (messages.isNotEmpty && 
           (messages.last.type == 'system' || messages.last.sender == AdhookSender.system) && 
           (messages.last.content == 'conversation_closed' || messages.last.content.contains('conversation_closed'))) {
@@ -633,7 +637,7 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
                                                 Text(_formatTime(msg.createdAt), style: style.applyFont(TextStyle(fontSize: 9, color: isMe ? Colors.white70 : Colors.grey))),
                                                 if (isMe) ...[
                                                   const SizedBox(width: 4),
-                                                  Icon(msg.isRead ? Icons.done_all : Icons.done, size: 13, color: msg.isRead ? Colors.blueAccent : Colors.white60),
+                                                  _buildDeliveryIcon(msg),
                                                 ],
                                               ],
                                             ),
@@ -676,6 +680,19 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
         ],
       ),
     );
+  }
+
+  Widget _buildDeliveryIcon(AdhookMessage msg) {
+    // Pending = masih di antrean (belum sampai server)
+    if (msg.deliveryStatus == AdhookDeliveryStatus.pending) {
+      return const Icon(Icons.schedule, size: 12, color: Colors.white60);
+    }
+    // Read = sudah dibaca agent => centang ganda biru
+    if (msg.isRead || msg.deliveryStatus == AdhookDeliveryStatus.read) {
+      return const Icon(Icons.done_all, size: 13, color: Colors.blueAccent);
+    }
+    // Sent = sampai server => centang tunggal
+    return const Icon(Icons.done, size: 13, color: Colors.white60);
   }
 
   Widget _buildMessageBody(AdhookMessage msg, bool isMe, AdhookChatStyle style) {
@@ -1062,13 +1079,83 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
       builder: (context, snapshot) {
         final status = snapshot.data;
         if (status == AdhookConnectionStatus.connected) return const SizedBox.shrink();
-        String text = status == AdhookConnectionStatus.disconnected ? "Connection lost. Reconnecting..." : "Connecting...";
-        Color color = status == AdhookConnectionStatus.disconnected ? const Color(0xFFEF4444) : const Color(0xFFF59E0B);
-        return Container(
-          width: double.infinity, 
-          padding: const EdgeInsets.symmetric(vertical: 6), 
-          color: color, 
-          child: Text(text, textAlign: TextAlign.center, style: style.applyFont(const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)))
+
+        final isDark = style.brightness == Brightness.dark;
+        final bool reconnecting = status == AdhookConnectionStatus.disconnected;
+        final Color accent = reconnecting ? const Color(0xFFD97706) : style.primaryColor;
+
+        final banner = Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: isDark
+                ? reconnecting
+                    ? const Color(0xFF3A2E16)
+                    : Colors.white.withValues(alpha: 0.07)
+                : reconnecting
+                    ? const Color(0xFFFFF7E0)
+                    : const Color(0xFFF1F6FF),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : reconnecting
+                      ? const Color(0xFFF0DCA8)
+                      : const Color(0xFFD8E5FF),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(accent),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  reconnecting
+                      ? "Koneksi terputus, menghubungkan kembali..."
+                      : "Menghubungkan...",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: style.applyFont(TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w500,
+                    color: isDark
+                        ? Colors.white70
+                        : reconnecting
+                            ? const Color(0xFF8A5A08)
+                            : const Color(0xFF33558A),
+                  )),
+                ),
+              ),
+            ],
+          ),
+        );
+
+        return Align(
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: KeyedSubtree(
+                key: ValueKey(reconnecting ? 'disconnected' : 'connecting'),
+                child: banner,
+              ),
+            ),
+          ),
         );
       },
     );
@@ -1270,6 +1357,10 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
   );
 
   Widget _buildInputArea(AdhookChatStyle style) {
+    if (_adhook.isConversationClosed) {
+      return _buildClosedBar(style);
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -1362,6 +1453,49 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
     );
   }
 
+  Widget _buildClosedBar(AdhookChatStyle style) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      decoration: BoxDecoration(
+        color: style.brightness == Brightness.dark ? const Color(0xFF1E1E1E) : Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: style.brightness == Brightness.dark ? 0.3 : 0.05),
+            offset: const Offset(0, -2),
+            blurRadius: 8,
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Icon(Icons.lock_outline_rounded, color: Colors.grey[600], size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Percakapan ini telah diakhiri.',
+                style: style.applyFont(TextStyle(
+                  fontSize: 13,
+                  color: style.brightness == Brightness.dark ? Colors.white70 : Colors.grey[700],
+                )),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () async {
+                await _adhook.startNewConversation();
+              },
+              icon: const Icon(Icons.add_comment_outlined, size: 18),
+              label: const Text('Mulai Chat Baru'),
+              style: TextButton.styleFrom(foregroundColor: style.primaryColor),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildReplyInputBar(AdhookChatStyle style) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1407,9 +1541,18 @@ class _AdhookChatWindowState extends State<AdhookChatWindow> with TickerProvider
         return _HistoryListOverlay(
           adhook: _adhook,
           style: widget.style,
-          onSelectConversation: (convId) async {
+          onSelectConversation: (conv) async {
             Navigator.pop(ctx);
-            await _adhook.openConversation(convId);
+            final rawId = conv['id'];
+            final conversationId = rawId is int ? rawId : int.tryParse('$rawId');
+            if (conversationId == null) return;
+            final sessionId = (conv['session_id'] as String?) ?? '';
+            final isClosed = conv['is_active'] != true;
+            await _adhook.openConversation(
+              conversationId: conversationId,
+              sessionId: sessionId.isEmpty ? null : sessionId,
+              isClosed: isClosed,
+            );
           },
           onNewChat: () async {
             Navigator.pop(ctx);
@@ -1733,7 +1876,7 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
 class _HistoryListOverlay extends StatefulWidget {
   final AdhookChat adhook;
   final AdhookChatStyle style;
-  final Function(int convId) onSelectConversation;
+  final void Function(Map<String, dynamic> conv) onSelectConversation;
   final VoidCallback onNewChat;
 
   const _HistoryListOverlay({
@@ -1846,7 +1989,7 @@ class _HistoryListOverlayState extends State<_HistoryListOverlay> {
                           return Material(
                             color: Colors.transparent,
                             child: InkWell(
-                              onTap: () => widget.onSelectConversation(id),
+                              onTap: () => widget.onSelectConversation(conv),
                               borderRadius: BorderRadius.circular(14),
                               child: Container(
                                 padding: const EdgeInsets.all(14),
