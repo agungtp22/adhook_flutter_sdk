@@ -1636,7 +1636,7 @@ class _VoiceCallOverlayState extends State<_VoiceCallOverlay> {
       _roomName = res['room_name'];
       _egressId = res['egress_id'];
       final token = res['token'];
-      final wsUrl = res['ws_url'] ?? 'ws://43.129.51.220:7880';
+      final wsUrl = res['ws_url'] ?? 'wss://livekit.soluska.id';
 
       if (token != null && token.toString().isNotEmpty) {
         try {
